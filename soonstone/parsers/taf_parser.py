@@ -37,6 +37,12 @@ _VIS_RE = re.compile(r"\b(?P<vis>P?6SM|\d{1,2}SM|\d/\dSM|M?1/\dSM)\b")
 _CLOUD_RE = re.compile(
     r"\b(?P<cover>FEW|SCT|BKN|OVC|SKC|CLR|VV)(?P<height>\d{3})(?P<type>CB|TCU)?\b"
 )
+_FM_RE = re.compile(r"\bFM(?P<time>\d{6})\b")
+_BECMG_RE = re.compile(r"\bBECMG\s+(?P<from>\d{4})/(?P<to>\d{4})\b")
+_TEMPO_RE = re.compile(r"\bTEMPO\s+(?P<from>\d{4})/(?P<to>\d{4})\b")
+_PROB_GROUP_RE = re.compile(
+    r"\bPROB(?P<pct>30|40)\s+(?P<from>\d{4})/(?P<to>\d{4})\b"
+)
 
 
 def _parse_dd_hh(token: str, anchor: datetime) -> datetime:
@@ -155,6 +161,53 @@ def _parse_group_body(body: str) -> dict:
     return out
 
 
+def _split_groups(body: str, issued_at: datetime, valid_from: datetime, valid_to: datetime):
+    """Yield (group_type, group_from, group_to, body_text, probability_pct) tuples.
+
+    The first yield is always the BASE group. Subsequent yields cover any
+    FM/BECMG/TEMPO/PROBnn groups found, in source order.
+    """
+    markers: list[tuple[int, int, str, datetime, datetime, int | None]] = []
+
+    for m in _FM_RE.finditer(body):
+        ts = m.group("time")  # DDHHMM
+        minute = int(ts[4:])
+        gf = _parse_dd_hh(ts[:4], issued_at).replace(minute=minute)
+        markers.append((m.start(), m.end(), "FM", gf, valid_to, None))
+
+    for m in _BECMG_RE.finditer(body):
+        gf = _parse_dd_hh(m.group("from"), issued_at)
+        gt = _parse_dd_hh(m.group("to"), issued_at)
+        markers.append((m.start(), m.end(), "BECMG", gf, gt, None))
+
+    for m in _TEMPO_RE.finditer(body):
+        gf = _parse_dd_hh(m.group("from"), issued_at)
+        gt = _parse_dd_hh(m.group("to"), issued_at)
+        markers.append((m.start(), m.end(), "TEMPO", gf, gt, None))
+
+    for m in _PROB_GROUP_RE.finditer(body):
+        gf = _parse_dd_hh(m.group("from"), issued_at)
+        gt = _parse_dd_hh(m.group("to"), issued_at)
+        markers.append(
+            (m.start(), m.end(), f"PROB{m.group('pct')}", gf, gt, int(m.group("pct")))
+        )
+
+    markers.sort(key=lambda x: x[0])
+
+    if markers:
+        base_text = body[: markers[0][0]].strip()
+    else:
+        base_text = body.strip()
+    yield ("BASE", valid_from, valid_to, base_text, None)
+
+    for i, (start, end, gtype, gf, gt, prob) in enumerate(markers):
+        if i + 1 < len(markers):
+            text = body[end : markers[i + 1][0]].strip()
+        else:
+            text = body[end:].strip()
+        yield (gtype, gf, gt, text, prob)
+
+
 def parse_taf(raw: str) -> dict:
     raw = raw.strip()
     header = _HEADER_RE.match(raw)
@@ -170,7 +223,6 @@ def parse_taf(raw: str) -> dict:
         now.year, now.month, issued_day, issued_hour, issued_minute,
         0, tzinfo=timezone.utc,
     )
-    # If the resolved day is in the future relative to now, the TAF was issued last month.
     if anchor > now + timedelta(hours=2):
         if anchor.month == 1:
             anchor = anchor.replace(year=anchor.year - 1, month=12)
@@ -181,17 +233,23 @@ def parse_taf(raw: str) -> dict:
     valid_from = _parse_dd_hh(header.group("valid_from"), issued_at)
     valid_to = _parse_dd_hh(header.group("valid_to"), issued_at)
 
-    body_start = header.end()
-    body = raw[body_start:].strip()
+    body = raw[header.end():].strip()
 
-    base_body = _parse_group_body(body)
-    base_group = {
-        "group_index": 0,
-        "group_type": "BASE",
-        "group_from": _isoformat_utc(valid_from),
-        "group_to": _isoformat_utc(valid_to),
-        **base_body,
-    }
+    groups: list[dict] = []
+    for idx, (gtype, gf, gt, gtext, prob) in enumerate(
+        _split_groups(body, issued_at, valid_from, valid_to)
+    ):
+        body_fields = _parse_group_body(gtext)
+        if prob is not None:
+            body_fields["probability_pct"] = prob
+        group = {
+            "group_index": idx,
+            "group_type": gtype,
+            "group_from": _isoformat_utc(gf),
+            "group_to": _isoformat_utc(gt),
+            **body_fields,
+        }
+        groups.append(group)
 
     return {
         "station_id": header.group("station"),
@@ -202,5 +260,5 @@ def parse_taf(raw: str) -> dict:
         "raw_taf": raw,
         "parse_method": "deterministic",
         "parse_warnings": None,
-        "groups": [base_group],
+        "groups": groups,
     }
