@@ -87,3 +87,41 @@ def test_becmg_group_has_window():
     g = becmg[0]
     assert g["group_from"] != g["group_to"], "BECMG must have a non-zero window"
     assert g["wind_dir_deg"] == 260
+
+
+def test_tempo_group_marked_with_probability_implicit():
+    raw = (
+        "KTPA 021720Z 0218/0324 25008KT P6SM SCT030 "
+        "TEMPO 0218/0222 VRB10G20KT 3SM TSRA BKN025CB"
+    )
+    parsed = parse_taf(raw)
+    tempo_groups = [g for g in parsed["groups"] if g["group_type"] == "TEMPO"]
+    assert len(tempo_groups) == 1
+    g = tempo_groups[0]
+    assert g["wind_speed_kt"] == 10.0
+    assert g["wind_gust_kt"] == 20.0
+    assert g["visibility_sm"] == 3.0
+    assert g["ceiling_ft"] == 2500
+
+
+def test_prob30_group_carries_probability():
+    raw = (
+        "KMIA 021720Z 0218/0324 10010KT P6SM SCT030 "
+        "PROB30 0219/0223 VRB05KT 4SM TSRA BKN025CB"
+    )
+    parsed = parse_taf(raw)
+    prob_groups = [g for g in parsed["groups"] if g["group_type"] == "PROB30"]
+    assert len(prob_groups) == 1
+    assert prob_groups[0]["probability_pct"] == 30
+    assert prob_groups[0]["visibility_sm"] == 4.0
+
+
+def test_all_taf_fixtures_parse_without_raising(taf_fixtures):
+    assert taf_fixtures, "no TAF fixtures captured -- run scripts/capture_fixtures.py"
+    for name, raw in taf_fixtures.items():
+        parsed = parse_taf(raw)
+        assert parsed["station_id"], f"{name}: empty station_id"
+        assert parsed["groups"], f"{name}: no groups produced"
+        assert parsed["groups"][0]["group_type"] == "BASE"
+        idxs = [g["group_index"] for g in parsed["groups"]]
+        assert idxs == sorted(idxs) == list(range(len(idxs)))
