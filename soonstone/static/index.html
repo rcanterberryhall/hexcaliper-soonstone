@@ -668,26 +668,51 @@ const NxHudControl = L.Control.extend({
 
 const nexradAnimPlaceholder = L.layerGroup();
 
-/* NOAA GOES GeoColor via NASA GIBS. Time-parametric URL — recompute the
-   most recent 10-min boundary on enable and on each 10-min refresh tick. */
-function _gibsTimestamp() {
-  /* GIBS publishes GOES products with ~60 min lag. Asking for the current
-     10-min slot returns 404; -60 min reliably has data. */
-  const t = new Date(Date.now() - 60 * 60 * 1000);
+/* NOAA GOES GeoColor via NASA GIBS. Publishing is irregular — some 10-min
+   slots are missing, gaps shift over time. We HEAD-probe a chain of
+   candidate offsets and use the first one that returns 200, refreshing
+   every 10 min so a stale URL doesn't sit forever. */
+const GIBS_OFFSET_MIN_CANDIDATES = [30, 60, 75, 90, 120, 180, 240];
+const GIBS_BASE = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default";
+
+function _gibsStampForOffset(offsetMin) {
+  const t = new Date(Date.now() - offsetMin * 60 * 1000);
   t.setSeconds(0, 0);
   t.setMinutes(t.getMinutes() - (t.getMinutes() % 10));
   return t.toISOString().replace(/\.\d+Z$/, "Z");
 }
-function _gibsUrl() {
-  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/${_gibsTimestamp()}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`;
+
+function _gibsUrlFromStamp(stamp) {
+  return `${GIBS_BASE}/${stamp}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`;
 }
-const gibsLayer = L.tileLayer(_gibsUrl(), {
+
+async function _findWorkingGibsStamp() {
+  for (const offset of GIBS_OFFSET_MIN_CANDIDATES) {
+    const stamp = _gibsStampForOffset(offset);
+    const probeUrl = `${GIBS_BASE}/${stamp}/GoogleMapsCompatible_Level7/2/1/1.png`;
+    try {
+      const r = await fetch(probeUrl, { method: "HEAD" });
+      if (r.ok) return stamp;
+    } catch (_) { /* keep walking */ }
+  }
+  return null;
+}
+
+const gibsLayer = L.tileLayer(_gibsUrlFromStamp(_gibsStampForOffset(90)), {
   opacity: 0.55,
   attribution: 'GOES GeoColor &copy; NOAA / NASA GIBS',
   maxZoom: 18,
   maxNativeZoom: 7,
 });
-setInterval(() => { gibsLayer.setUrl(_gibsUrl()); }, 10 * 60 * 1000);
+
+async function _refreshGibsLayerUrl() {
+  const stamp = await _findWorkingGibsStamp();
+  if (stamp) gibsLayer.setUrl(_gibsUrlFromStamp(stamp));
+}
+
+/* Initial probe at page load + every 10 min thereafter. */
+_refreshGibsLayerUrl();
+setInterval(_refreshGibsLayerUrl, 10 * 60 * 1000);
 
 /* AIRMET/SIGMET overlay -- empty L.geoJSON, populated lazily on enable. */
 const HAZARD_STYLES = {
