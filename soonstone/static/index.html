@@ -119,6 +119,25 @@
     .leaflet-control-layers-base label { color: var(--text); }
     .leaflet-control-layers-separator { border-top-color: var(--border) !important; }
 
+    /* "Locate me" button matches Leaflet's zoom-bar visual language */
+    .locate-control a {
+      display: block; width: 30px; height: 30px;
+      line-height: 30px; text-align: center;
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border-bottom: 1px solid var(--border) !important;
+      text-decoration: none;
+      font-size: 16px;
+    }
+    .locate-control a:hover { background: var(--surface-2) !important; }
+    .user-location-marker {
+      width: 14px; height: 14px;
+      background: var(--blue);
+      border: 2px solid var(--surface);
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px var(--blue-bright), 0 0 12px rgba(56, 189, 248, 0.6);
+    }
+
     /* RainViewer animation HUD */
     .rv-hud {
       background: var(--surface);
@@ -650,6 +669,55 @@ map.on("overlayremove", async (e) => {
 });
 
 L.control.layers(baseLayers, overlays, { position: "topright", collapsed: false }).addTo(map);
+
+/* ─── Locate-me ──────────────────────────────────────────────────
+   On first load, request the browser's geolocation and zoom to the
+   user's area at state-level zoom (z=6). Honor user interactions —
+   if they pan/zoom before location resolves, don't yank the view.
+   A persistent topleft button re-triggers location on demand. */
+
+const LOCATE_ZOOM = 6;
+let userMovedMap = false;
+let userLocationMarker = null;
+
+map.on("dragstart zoomstart", () => { userMovedMap = true; });
+
+function showUserLocation(latlng, recenter) {
+  if (userLocationMarker) map.removeLayer(userLocationMarker);
+  userLocationMarker = L.marker(latlng, {
+    icon: L.divIcon({
+      className: "user-location-marker",
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    }),
+    interactive: false,
+    keyboard: false,
+  }).addTo(map);
+  if (recenter) map.setView(latlng, LOCATE_ZOOM);
+}
+
+map.on("locationfound", (e) => {
+  showUserLocation(e.latlng, !userMovedMap);
+});
+map.on("locationerror", () => { /* silent fallback to CONUS view */ });
+
+map.locate({ setView: false, maxZoom: LOCATE_ZOOM, enableHighAccuracy: false });
+
+const LocateControl = L.Control.extend({
+  options: { position: "topleft" },
+  onAdd: function () {
+    const div = L.DomUtil.create("div", "leaflet-bar locate-control");
+    div.innerHTML = '<a href="#" title="Find me">&#x25CE;</a>';
+    L.DomEvent.disableClickPropagation(div);
+    div.querySelector("a").addEventListener("click", (e) => {
+      e.preventDefault();
+      userMovedMap = false;  /* explicit click = consent to recenter */
+      map.locate({ setView: false, maxZoom: LOCATE_ZOOM, enableHighAccuracy: false });
+    });
+    return div;
+  },
+});
+new LocateControl().addTo(map);
 
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = function() {
