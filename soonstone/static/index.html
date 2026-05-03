@@ -244,6 +244,18 @@
       font-size: 12px;
       line-height: 1.5;
     }
+    .popup-now.stale {
+      border-left-color: var(--cat-ifr);
+      background: #2a1818;
+    }
+    .popup-now-stale-banner {
+      color: var(--cat-ifr);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
     .popup-now-cat {
       display: inline-block; padding: 1px 6px;
       border-radius: 3px; color: white;
@@ -1115,9 +1127,29 @@ function nowBlock(now) {
   const clouds = fmtClouds(now.cloud_layers);
   const wxLine = wx ? `<div>Weather: ${wx}</div>` : "";
   const cloudLine = clouds ? `<div>${clouds}</div>` : "";
+
+  /* Staleness check: if observed_at is more than 90 min in the past, this
+     station may not be reporting right now. Flag it loudly so the popup
+     doesn't read as 'live conditions' when it isn't. */
+  const obsTime = new Date(now.observed_at).getTime();
+  const ageMin = (Date.now() - obsTime) / 60000;
+  const isStale = ageMin > 90;
+  const ageLabel = ageMin < 60
+    ? `${Math.round(ageMin)} min ago`
+    : ageMin < 1440
+      ? `${(ageMin / 60).toFixed(1)} h ago`
+      : `${Math.round(ageMin / 1440)} days ago`;
+  const headLabel = isStale
+    ? `Last observation ${ageLabel}`
+    : `At ${fmtTime(now.observed_at)}`;
+  const staleBanner = isStale
+    ? `<div class="popup-now-stale-banner">Stale &middot; station may not be reporting</div>`
+    : "";
+
   return `
-    <div class="popup-now">
-      <div><strong>At ${fmtTime(now.observed_at)}</strong> &middot; ${now.metar_type === "SPECI" ? "Special observation" : "Observation"}</div>
+    <div class="popup-now${isStale ? " stale" : ""}">
+      ${staleBanner}
+      <div><strong>${headLabel}</strong> &middot; ${now.metar_type === "SPECI" ? "Special observation" : "Observation"}${isStale ? ` &middot; <span style="color:var(--text-muted)">${fmtTime(now.observed_at)}</span>` : ""}</div>
       <div>${fmtWind(now)}</div>
       <div>Visibility ${fmtVis(now.visibility_sm)} &middot; ${fmtCeiling(now.ceiling_ft)}</div>
       ${cloudLine}

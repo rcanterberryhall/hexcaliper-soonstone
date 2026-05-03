@@ -42,7 +42,18 @@ def app(tmp_path, monkeypatch):
 
 
 def test_stations_includes_latest_flight_category(app):
-    body = app.test_client().get("/api/stations").get_json()
+    """Default endpoint hides stations without a recent (last 6h) observation;
+    use ?include_stale=1 to verify both the IFR-fresh KMIA and
+    no-observation KEYW."""
+    body = app.test_client().get("/api/stations?include_stale=1").get_json()
     by_id = {f["properties"]["id"]: f["properties"] for f in body["features"]}
     assert by_id["KMIA"]["flight_category"] == "IFR"
     assert by_id["KEYW"]["flight_category"] is None
+
+
+def test_default_filters_out_stations_without_recent_obs(app):
+    body = app.test_client().get("/api/stations").get_json()
+    ids = {f["properties"]["id"] for f in body["features"]}
+    # KMIA had a recent (10-min-old) observation in the fixture; KEYW had none.
+    assert "KMIA" in ids
+    assert "KEYW" not in ids

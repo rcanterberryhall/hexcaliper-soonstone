@@ -31,7 +31,7 @@ def test_returns_geojson_feature_collection(app):
                 latitude=24.55, longitude=-81.76, active=1),
     ])
     client = app.test_client()
-    resp = client.get("/api/stations")
+    resp = client.get("/api/stations?include_stale=1")
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["type"] == "FeatureCollection"
@@ -48,6 +48,6 @@ def test_excludes_inactive_stations(app):
         Station(station_id="KGONE", name="Gone", latitude=20.0, longitude=-80.0, active=0),
     ])
     client = app.test_client()
-    body = client.get("/api/stations").get_json()
+    body = client.get("/api/stations?include_stale=1").get_json()
     ids = {f["properties"]["id"] for f in body["features"]}
     assert ids == {"KMIA"}
