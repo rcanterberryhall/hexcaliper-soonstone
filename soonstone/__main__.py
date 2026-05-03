@@ -12,13 +12,14 @@ import argparse
 import sys
 
 from soonstone.app import create_app
-from soonstone.scheduler import build_scheduler, run_once
+from soonstone.scheduler import build_scheduler, first_scan, run_once
 
 
 def _serve(app) -> None:
     """Start scheduler in background thread, then block in Flask serving HTTP."""
     scheduler = build_scheduler(app)
     scheduler.start()
+    first_scan(scheduler)
     try:
         app.run(host="0.0.0.0", port=5055, use_reloader=False, threaded=True)
     finally:

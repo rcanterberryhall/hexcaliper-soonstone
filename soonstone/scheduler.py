@@ -13,6 +13,7 @@ Each registered job is a closure that:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -148,6 +149,45 @@ def run_once(job_name: str, app: Flask) -> None:
         "fetch_radar_images": fetch_radar_images,
         "ingest_airsigmets": ingest_airsigmets,
     }
+
+
+# Order + offsets chosen so the data the user cares about most appears first
+# (stations -> AIRMETs -> METARs -> TAFs -> NWS -> radar) and so back-to-back
+# write-heavy jobs don't stomp on the SQLite write lock.
+_FIRST_SCAN_SCHEDULE: tuple[tuple[str, int], ...] = (
+    ("refresh_stations",     5),
+    ("ingest_airsigmets",   10),
+    ("ingest_metars",       30),
+    ("ingest_tafs",        120),
+    ("ingest_nws_forecasts", 180),
+    ("fetch_radar_images", 240),
+)
+
+
+def first_scan(scheduler: BackgroundScheduler) -> None:
+    """Fire each ingest job once shortly after startup.
+
+    Mirrors a PLC's 'first scan' phase: initialize state on power-up instead
+    of waiting for the next cron tick (which can be 30 min away). Bumping
+    next_run_time on each existing cron job hands one extra invocation to
+    APScheduler, then the cron schedule resumes naturally. Staggered offsets
+    prevent SQLite write-lock contention between concurrent ingest jobs.
+    """
+    now = datetime.now(timezone.utc)
+    for job_id, offset_sec in _FIRST_SCAN_SCHEDULE:
+        try:
+            scheduler.modify_job(
+                job_id, next_run_time=now + timedelta(seconds=offset_sec)
+            )
+            log.info(
+                "first_scan_scheduled",
+                extra={"job": job_id, "in_seconds": offset_sec},
+            )
+        except Exception as exc:
+            log.warning(
+                "first_scan_modify_failed",
+                extra={"job": job_id, "error": str(exc)},
+            )
     if job_name not in fn_map:
         raise ValueError(f"unknown job: {job_name}")
     runner = _make_runner(app, fn_map[job_name], job_name)
