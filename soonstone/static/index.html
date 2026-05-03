@@ -327,25 +327,41 @@ const vfrLayer = L.tileLayer(
   }
 );
 
-/* RainViewer animated overlay — preload last hour of frames and cycle.
+/* RainViewer animated overlays (radar + satellite). Preload last hour of
+   frames and cycle.
 
    Default off; user toggles via the layer control. When enabled, fetches
    RainViewer's manifest, takes the last 12 past frames (~60 min @ 5-min
    spacing), preloads each as its own L.tileLayer with opacity 0, then
-   cycles which one is at opacity 0.6 every 700 ms. A small HUD at the
-   bottom-left shows the current frame's timestamp and a play/pause.
-   The manifest is re-fetched every 5 min and the frame stack rebuilt. */
+   cycles which one is at opacity (radar 0.6, satellite 0.5) every 700 ms.
+   A small HUD at the bottom-left shows the current frame's timestamp and
+   a play/pause. The manifest is re-fetched every 5 min and both frame
+   stacks rebuilt. Tiles are 512 px (matches RainViewer's website quality
+   on retina) with maxNativeZoom 14 -- crisp through the chart-overlap
+   range. */
 
-const RV_FRAME_COUNT     = 12;
-const RV_FRAME_INTERVAL  = 700;
+const RV_FRAME_COUNT      = 12;
+const RV_FRAME_INTERVAL   = 700;
 const RV_REFRESH_INTERVAL = 5 * 60 * 1000;
+const RV_RADAR_OPACITY    = 0.6;
+const RV_SATELLITE_OPACITY = 0.5;
+const RV_TILE_SIZE        = 512;
+/* RainViewer URL options: /{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png
+   color 2  = "Original BR" radar palette
+   color 0  = satellite IR color
+   1_1      = smoothing on, snow rendered distinctly                       */
+const RV_RADAR_OPTS    = "2/1_1.png";
+const RV_SATELLITE_OPTS = "0/0_0.png";
 
 let rvFrames = [];
+let rvSatFrames = [];
 let rvCurrentIdx = 0;
 let rvAnimTimer = null;
 let rvRefreshTimer = null;
 let rvPaused = false;
 let rvHud = null;
+let rvRadarOn = false;
+let rvSatelliteOn = false;
 
 async function rvRebuild() {
   let manifest;
@@ -353,42 +369,100 @@ async function rvRebuild() {
     const r = await fetch("https://api.rainviewer.com/public/weather-maps.json");
     manifest = await r.json();
   } catch (_) { return; }
+
   const past = (manifest.radar && manifest.radar.past) || [];
-  if (!past.length) return;
-  const useFrames = past.slice(-RV_FRAME_COUNT);
+  const sat  = (manifest.satellite && manifest.satellite.infrared) || [];
 
-  // Tear down any existing layers first.
-  for (const layer of rvFrames) {
-    if (map.hasLayer(layer)) map.removeLayer(layer);
-  }
+  // Tear down both stacks.
+  for (const layer of rvFrames) if (map.hasLayer(layer)) map.removeLayer(layer);
+  for (const layer of rvSatFrames) if (map.hasLayer(layer)) map.removeLayer(layer);
   rvFrames = [];
+  rvSatFrames = [];
 
-  for (const frame of useFrames) {
-    const url = `${manifest.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
-    const layer = L.tileLayer(url, {
-      opacity: 0,
-      attribution: 'Radar &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
-      maxZoom: 18,
-      maxNativeZoom: 14,
-    });
-    layer._rvTimestamp = frame.time; /* unix epoch sec */
-    layer.addTo(map);
-    rvFrames.push(layer);
+  if (rvRadarOn) {
+    for (const frame of past.slice(-RV_FRAME_COUNT)) {
+      const url = `${manifest.host}${frame.path}/${RV_TILE_SIZE}/{z}/{x}/{y}/${RV_RADAR_OPTS}`;
+      const layer = L.tileLayer(url, {
+        opacity: 0,
+        attribution: 'Radar &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
+        maxZoom: 18,
+        maxNativeZoom: 14,
+        tileSize: RV_TILE_SIZE,
+        zoomOffset: -1,  /* required when tileSize=512 to keep zoom math right */
+      });
+      layer._rvTimestamp = frame.time;
+      layer.addTo(map);
+      rvFrames.push(layer);
+    }
   }
-  rvCurrentIdx = rvFrames.length - 1;
+
+  if (rvSatelliteOn) {
+    for (const frame of sat.slice(-RV_FRAME_COUNT)) {
+      const url = `${manifest.host}${frame.path}/${RV_TILE_SIZE}/{z}/{x}/{y}/${RV_SATELLITE_OPTS}`;
+      const layer = L.tileLayer(url, {
+        opacity: 0,
+        attribution: 'Satellite &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
+        maxZoom: 18,
+        maxNativeZoom: 8,  /* satellite tiles much coarser than radar */
+        tileSize: RV_TILE_SIZE,
+        zoomOffset: -1,
+      });
+      layer._rvTimestamp = frame.time;
+      layer.addTo(map);
+      rvSatFrames.push(layer);
+    }
+  }
+
+  const visibleStack = rvFrames.length ? rvFrames : rvSatFrames;
+  rvCurrentIdx = Math.max(0, visibleStack.length - 1);
   rvShowFrame(rvCurrentIdx);
 }
 
 function rvShowFrame(idx) {
+  /* Radar frames have their own timeline; satellite frames have their own
+     timeline (cadences differ). For the cycler we use the LONGER stack as
+     the primary timeline; the other stack picks its closest-matching frame
+     by timestamp. The HUD shows the primary timeline's current timestamp. */
+  const primary = rvFrames.length >= rvSatFrames.length ? rvFrames : rvSatFrames;
+  if (!primary.length) return;
+  const primaryFrame = primary[idx];
+  const primaryTs = primaryFrame._rvTimestamp;
+
   for (let i = 0; i < rvFrames.length; i++) {
-    rvFrames[i].setOpacity(i === idx ? 0.6 : 0);
+    rvFrames[i].setOpacity(i === idx && primary === rvFrames ? RV_RADAR_OPACITY : 0);
   }
-  if (rvHud) rvHud._update(rvFrames[idx]._rvTimestamp);
+  if (primary === rvSatFrames) {
+    /* Pick the radar frame whose timestamp is closest to the primary's. */
+    const matchIdx = _rvClosestIdx(rvFrames, primaryTs);
+    if (matchIdx !== -1) rvFrames[matchIdx].setOpacity(RV_RADAR_OPACITY);
+  }
+
+  for (let i = 0; i < rvSatFrames.length; i++) {
+    rvSatFrames[i].setOpacity(i === idx && primary === rvSatFrames ? RV_SATELLITE_OPACITY : 0);
+  }
+  if (primary === rvFrames) {
+    const matchIdx = _rvClosestIdx(rvSatFrames, primaryTs);
+    if (matchIdx !== -1) rvSatFrames[matchIdx].setOpacity(RV_SATELLITE_OPACITY);
+  }
+
+  if (rvHud) rvHud._update(primaryTs);
+}
+
+function _rvClosestIdx(stack, ts) {
+  if (!stack.length) return -1;
+  let best = 0, bestDiff = Math.abs(stack[0]._rvTimestamp - ts);
+  for (let i = 1; i < stack.length; i++) {
+    const d = Math.abs(stack[i]._rvTimestamp - ts);
+    if (d < bestDiff) { best = i; bestDiff = d; }
+  }
+  return best;
 }
 
 function rvTick() {
-  if (rvPaused || !rvFrames.length) return;
-  rvCurrentIdx = (rvCurrentIdx + 1) % rvFrames.length;
+  if (rvPaused) return;
+  const primary = rvFrames.length >= rvSatFrames.length ? rvFrames : rvSatFrames;
+  if (!primary.length) return;
+  rvCurrentIdx = (rvCurrentIdx + 1) % primary.length;
   rvShowFrame(rvCurrentIdx);
 }
 
@@ -486,11 +560,36 @@ async function refreshAirsigmets() {
   } catch (_) { /* ignore; current overlay stays */ }
 }
 
+const radarPlaceholder = L.layerGroup();
+const satellitePlaceholder = L.layerGroup();
 const overlays = {
   "VFR Sectional (zoom in past 8)": vfrLayer,
   "Hazards (AIRMET/SIGMET)": airsigmetsLayer,
-  "Live radar (RainViewer)": placeholderLayer,
+  "Live radar (RainViewer)": radarPlaceholder,
+  "Cloud cover (RainViewer satellite)": satellitePlaceholder,
 };
+
+async function rvEnsureStarted() {
+  if (!rvHud) {
+    rvHud = new RvHudControl();
+    rvHud.addTo(map);
+    rvPaused = false;
+  }
+  await rvRebuild();
+  if (!rvAnimTimer) rvAnimTimer = setInterval(rvTick, RV_FRAME_INTERVAL);
+  if (!rvRefreshTimer) rvRefreshTimer = setInterval(rvRebuild, RV_REFRESH_INTERVAL);
+}
+
+function rvMaybeStop() {
+  if (rvRadarOn || rvSatelliteOn) return;
+  if (rvHud) { map.removeControl(rvHud); rvHud = null; }
+  if (rvAnimTimer) { clearInterval(rvAnimTimer); rvAnimTimer = null; }
+  if (rvRefreshTimer) { clearInterval(rvRefreshTimer); rvRefreshTimer = null; }
+  for (const l of rvFrames) if (map.hasLayer(l)) map.removeLayer(l);
+  for (const l of rvSatFrames) if (map.hasLayer(l)) map.removeLayer(l);
+  rvFrames = [];
+  rvSatFrames = [];
+}
 
 map.on("overlayadd", async (e) => {
   if (e.name === "Hazards (AIRMET/SIGMET)") {
@@ -500,16 +599,19 @@ map.on("overlayadd", async (e) => {
     }
     return;
   }
-  if (e.name !== "Live radar (RainViewer)") return;
-  rvHud = new RvHudControl();
-  rvHud.addTo(map);
-  rvPaused = false;
-  await rvRebuild();
-  if (!rvAnimTimer) rvAnimTimer = setInterval(rvTick, RV_FRAME_INTERVAL);
-  if (!rvRefreshTimer) rvRefreshTimer = setInterval(rvRebuild, RV_REFRESH_INTERVAL);
+  if (e.name === "Live radar (RainViewer)") {
+    rvRadarOn = true;
+    await rvEnsureStarted();
+    return;
+  }
+  if (e.name === "Cloud cover (RainViewer satellite)") {
+    rvSatelliteOn = true;
+    await rvEnsureStarted();
+    return;
+  }
 });
 
-map.on("overlayremove", (e) => {
+map.on("overlayremove", async (e) => {
   if (e.name === "Hazards (AIRMET/SIGMET)") {
     if (airsigmetsRefreshTimer) {
       clearInterval(airsigmetsRefreshTimer);
@@ -517,22 +619,17 @@ map.on("overlayremove", (e) => {
     }
     return;
   }
-  if (e.name !== "Live radar (RainViewer)") return;
-  for (const layer of rvFrames) {
-    if (map.hasLayer(layer)) map.removeLayer(layer);
+  if (e.name === "Live radar (RainViewer)") {
+    rvRadarOn = false;
+    if (rvSatelliteOn) await rvRebuild();  /* re-render without radar */
+    rvMaybeStop();
+    return;
   }
-  rvFrames = [];
-  if (rvHud) {
-    map.removeControl(rvHud);
-    rvHud = null;
-  }
-  if (rvAnimTimer) {
-    clearInterval(rvAnimTimer);
-    rvAnimTimer = null;
-  }
-  if (rvRefreshTimer) {
-    clearInterval(rvRefreshTimer);
-    rvRefreshTimer = null;
+  if (e.name === "Cloud cover (RainViewer satellite)") {
+    rvSatelliteOn = false;
+    if (rvRadarOn) await rvRebuild();
+    rvMaybeStop();
+    return;
   }
 });
 
