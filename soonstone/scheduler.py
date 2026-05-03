@@ -1,0 +1,92 @@
+"""APScheduler wiring for the four soonstone background jobs.
+
+`build_scheduler(app)` returns a configured but NOT-yet-started
+BackgroundScheduler. Caller is responsible for `.start()` and `.shutdown()`
+(see soonstone.__main__).
+
+Each registered job is a closure that:
+  1. opens a fresh SQLAlchemy session
+  2. calls the underlying ingestion function
+  3. logs the result as JSON
+  4. closes the session, regardless of outcome
+"""
+from __future__ import annotations
+
+import logging
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from flask import Flask
+
+from soonstone.db import make_session_factory
+from soonstone.ingestion.metars import ingest_metars
+from soonstone.ingestion.prune import prune_old
+from soonstone.ingestion.stations import refresh_stations
+from soonstone.ingestion.tafs import ingest_tafs
+
+log = logging.getLogger(__name__)
+
+
+def _make_runner(app: Flask, fn, name: str):
+    session_factory = make_session_factory(app.extensions["soonstone_engine"])
+    awc_client = app.extensions["soonstone_awc_client"]
+    config = app.extensions["soonstone_config"]
+
+    def _run() -> None:
+        with session_factory() as session:
+            try:
+                if fn is prune_old:
+                    result = fn(session)
+                else:
+                    result = fn(session, awc_client, config)
+                log.info("ingestion_done", extra=result.as_log_extra())
+            except Exception:
+                log.exception("ingestion_failed", extra={"job": name})
+                raise
+
+    _run.__name__ = name
+    return _run
+
+
+def build_scheduler(app: Flask) -> BackgroundScheduler:
+    scheduler = BackgroundScheduler(timezone="UTC")
+
+    scheduler.add_job(
+        _make_runner(app, refresh_stations, "refresh_stations"),
+        trigger=CronTrigger(day_of_week="mon", hour=3, minute=0),
+        id="refresh_stations",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _make_runner(app, ingest_metars, "ingest_metars"),
+        trigger=CronTrigger(minute="25,55"),
+        id="ingest_metars",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _make_runner(app, ingest_tafs, "ingest_tafs"),
+        trigger=CronTrigger(minute="0,30"),
+        id="ingest_tafs",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _make_runner(app, prune_old, "prune_old"),
+        trigger=CronTrigger(hour=4, minute=0),
+        id="prune_old",
+        replace_existing=True,
+    )
+    return scheduler
+
+
+def run_once(job_name: str, app: Flask) -> None:
+    """Manually fire one ingestion job, then exit. Used by `python -m soonstone --run-once`."""
+    fn_map = {
+        "refresh_stations": refresh_stations,
+        "ingest_metars": ingest_metars,
+        "ingest_tafs": ingest_tafs,
+        "prune_old": prune_old,
+    }
+    if job_name not in fn_map:
+        raise ValueError(f"unknown job: {job_name}")
+    runner = _make_runner(app, fn_map[job_name], job_name)
+    runner()
