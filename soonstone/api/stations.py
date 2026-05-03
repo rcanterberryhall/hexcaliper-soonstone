@@ -5,7 +5,7 @@ from flask import Blueprint, current_app, jsonify
 from sqlalchemy import select
 
 from soonstone.db import make_session_factory
-from soonstone.models import Station
+from soonstone.models import Observation, Station
 
 bp = Blueprint("stations", __name__, url_prefix="/api")
 
@@ -14,26 +14,37 @@ bp = Blueprint("stations", __name__, url_prefix="/api")
 def list_stations():
     engine = current_app.extensions["soonstone_engine"]
     sf = make_session_factory(engine)
+
+    latest_cat = (
+        select(Observation.flight_category)
+        .where(Observation.station_id == Station.station_id)
+        .order_by(Observation.observed_at.desc())
+        .limit(1)
+        .correlate(Station)
+        .scalar_subquery()
+        .label("flight_category")
+    )
+    stmt = select(Station, latest_cat).where(Station.active == 1)
+
     with sf() as session:
-        rows = session.execute(
-            select(Station).where(Station.active == 1)
-        ).scalars().all()
+        rows = session.execute(stmt).all()
 
     features = [
         {
             "type": "Feature",
             "geometry": {
                 "type": "Point",
-                "coordinates": [row.longitude, row.latitude],
+                "coordinates": [station.longitude, station.latitude],
             },
             "properties": {
-                "id": row.station_id,
-                "name": row.name,
-                "state": row.state,
-                "taf_site": bool(row.taf_site),
-                "elevation_m": row.elevation_m,
+                "id": station.station_id,
+                "name": station.name,
+                "state": station.state,
+                "taf_site": bool(station.taf_site),
+                "elevation_m": station.elevation_m,
+                "flight_category": flight_category,
             },
         }
-        for row in rows
+        for station, flight_category in rows
     ]
     return jsonify({"type": "FeatureCollection", "features": features})
