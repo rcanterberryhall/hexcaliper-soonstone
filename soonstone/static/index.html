@@ -222,6 +222,13 @@
       border-color: #a78bfa; /* violet-400 */
       border-style: dashed;
     }
+    .cell.nws {
+      background: #122636; /* slightly different navy with sky cast */
+      border-color: var(--blue-bright);
+    }
+    .cell.nws .cell-time {
+      color: var(--blue-bright);
+    }
     .cell-time { font-weight: 700; color: var(--text); }
     .cell-cat {
       display: inline-block; padding: 0 5px;
@@ -515,7 +522,30 @@ function convergenceCell(c, observedCat) {
     </div>`;
 }
 
+function forwardCellNws(f) {
+  const lead = fmtLeadFwd(f.lead_hours);
+  const popLine = f.pop_pct != null
+    ? `<div>${f.pop_pct}% chance of precip</div>`
+    : "";
+  const tempLine = f.temperature_f != null
+    ? `<div>${f.temperature_f}&deg;F</div>`
+    : "";
+  const windLine = (f.wind_dir || f.wind_speed)
+    ? `<div>${f.wind_dir || ""} ${f.wind_speed || ""}</div>`
+    : "";
+  return `
+    <div class="cell nws" title="NWS public 12h forecast">
+      <div class="cell-time">NWS &middot; ${f.period_name || ""}</div>
+      <div>${fmtTime(f.valid_at)} &middot; ${lead}</div>
+      ${windLine}
+      ${tempLine}
+      ${popLine}
+      <div style="font-style:italic">${f.short_forecast || ""}</div>
+    </div>`;
+}
+
 function forwardCell(f) {
+  if (f.forecast_source === "NWS") return forwardCellNws(f);
   const cls = `cell ${f.group_type === "TEMPO" ? "tempo" : ""} ${(f.group_type || "").startsWith("PROB") ? "prob" : ""}`.trim();
   const label = GROUP_LABEL[f.group_type] || f.group_type;
   const lead = fmtLeadFwd(f.lead_hours);
