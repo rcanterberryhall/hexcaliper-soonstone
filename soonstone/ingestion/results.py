@@ -63,6 +63,17 @@ class NwsResult:
 
 
 @dataclass(frozen=True)
+class AirsigmetsResult:
+    features_count: int
+    bytes_written: int
+
+    def as_log_extra(self) -> dict:
+        d = asdict(self)
+        d["job"] = "ingest_airsigmets"
+        return d
+
+
+@dataclass(frozen=True)
 class RadarResult:
     observations_scanned: int
     images_fetched: int

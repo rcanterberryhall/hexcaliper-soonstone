@@ -32,3 +32,7 @@ class AwcClient:
 
     def fetch_stations(self, bbox: str) -> list[dict]:
         return self._get("stationinfo", {"bbox": bbox, "format": "json"})
+
+    def fetch_airsigmets(self) -> dict:
+        """Returns AWC's AIRMET/SIGMET FeatureCollection (GeoJSON)."""
+        return self._get("airsigmet", {"format": "geojson"})

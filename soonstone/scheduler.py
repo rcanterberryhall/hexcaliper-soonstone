@@ -20,6 +20,7 @@ from apscheduler.triggers.cron import CronTrigger
 from flask import Flask
 
 from soonstone.db import make_session_factory
+from soonstone.ingestion.airsigmets import ingest_airsigmets
 from soonstone.ingestion.iem_radar import IemRadarClient
 from soonstone.ingestion.metars import ingest_metars
 from soonstone.ingestion.nws import ingest_nws_forecasts
@@ -62,6 +63,8 @@ def _make_runner(app: Flask, fn, name: str):
                     result = fn(session, _get_nws_client(app), config)
                 elif fn is fetch_radar_images:
                     result = fn(session, _get_iem_radar_client(app), config)
+                elif fn is ingest_airsigmets:
+                    result = fn(awc_client, config)  # no session; cache-to-disk only
                 else:
                     result = fn(session, awc_client, config)
                 log.info("ingestion_done", extra=result.as_log_extra())
@@ -124,6 +127,13 @@ def build_scheduler(app: Flask) -> BackgroundScheduler:
         id="fetch_radar_images",
         replace_existing=True,
     )
+    # AIRMETs/SIGMETs issue ad-hoc; poll every 10 min on minute 7,17,...
+    scheduler.add_job(
+        _make_runner(app, ingest_airsigmets, "ingest_airsigmets"),
+        trigger=CronTrigger(minute="7,17,27,37,47,57"),
+        id="ingest_airsigmets",
+        replace_existing=True,
+    )
     return scheduler
 
 
@@ -136,6 +146,7 @@ def run_once(job_name: str, app: Flask) -> None:
         "prune_old": prune_old,
         "ingest_nws_forecasts": ingest_nws_forecasts,
         "fetch_radar_images": fetch_radar_images,
+        "ingest_airsigmets": ingest_airsigmets,
     }
     if job_name not in fn_map:
         raise ValueError(f"unknown job: {job_name}")

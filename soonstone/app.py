@@ -11,6 +11,7 @@ from typing import Optional
 
 from flask import Flask
 
+from soonstone.api.airsigmets import bp as airsigmets_bp
 from soonstone.api.health import bp as health_bp
 from soonstone.api.index import bp as index_bp
 from soonstone.api.snapshot import bp as snapshot_bp
@@ -47,6 +48,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.register_blueprint(stations_bp)
     app.register_blueprint(snapshot_bp)
     app.register_blueprint(health_bp)
+    app.register_blueprint(airsigmets_bp)
     app.register_blueprint(index_bp)
 
     return app

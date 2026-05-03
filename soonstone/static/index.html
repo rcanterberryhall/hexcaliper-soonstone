@@ -416,12 +416,90 @@ const RvHudControl = L.Control.extend({
 });
 
 const placeholderLayer = L.layerGroup();
+
+/* AIRMET/SIGMET overlay -- empty L.geoJSON, populated lazily on enable. */
+const HAZARD_STYLES = {
+  CONVECTIVE:  { color: "#dc2626", fillColor: "#dc2626", weight: 2,   fillOpacity: 0.22, dashArray: "6,4" },
+  TURB:        { color: "#f97316", fillColor: "#f97316", weight: 2,   fillOpacity: 0.18 },
+  ICE:         { color: "#a855f7", fillColor: "#a855f7", weight: 2,   fillOpacity: 0.18 },
+  IFR:         { color: "#3b82f6", fillColor: "#3b82f6", weight: 1.5, fillOpacity: 0.18 },
+  "MTN OBSCN": { color: "#a16207", fillColor: "#a16207", weight: 1.5, fillOpacity: 0.18, dashArray: "4,3" },
+  ASH:         { color: "#525252", fillColor: "#525252", weight: 2,   fillOpacity: 0.30 },
+};
+
+function styleForHazard(hazard, severity) {
+  const base = HAZARD_STYLES[hazard] || {
+    color: "#94a3b8", fillColor: "#94a3b8", weight: 1.5, fillOpacity: 0.15,
+  };
+  if (severity === "SEV") return { ...base, weight: base.weight + 1 };
+  if (severity === "MOD" && !base.dashArray) return { ...base, dashArray: "3,3" };
+  return base;
+}
+
+function escapeHtml(s) {
+  return (s || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function isoFromAwcTimestring(s) {
+  // AWC's airsigmet validTimeFrom is like '2026-05-03T13:00:00Z' or
+  // '2026-05-03 13:00:00' depending on endpoint. Normalize.
+  if (!s) return null;
+  let t = s;
+  if (t.includes(" ") && !t.includes("T")) t = t.replace(" ", "T");
+  if (!t.endsWith("Z") && !t.match(/[+-]\d\d:?\d\d$/)) t += "Z";
+  return t;
+}
+
+function airsigmetPopup(feature) {
+  const p = feature.properties || {};
+  const head = `${p.airSigmetType || "BULLETIN"}: ${p.hazard || ""}`;
+  const sev = p.severity && p.severity !== "NONE" ? ` &middot; ${p.severity}` : "";
+  const fromIso = isoFromAwcTimestring(p.validTimeFrom);
+  const toIso = isoFromAwcTimestring(p.validTimeTo);
+  const valid = (fromIso && toIso) ? fmtTimeRange(fromIso, toIso) : "—";
+  const raw = escapeHtml(p.rawAirSigmet || "").replace(/\n/g, "<br>");
+  return `
+    <div class="popup-station">${head}${sev}</div>
+    <div class="popup-section-label">Valid</div>
+    <div>${valid}</div>
+    ${raw ? `<div class="popup-section-label">Bulletin</div><pre style="font-size:10px;white-space:pre-wrap;line-height:1.3;color:var(--text-muted)">${raw}</pre>` : ""}
+  `;
+}
+
+const airsigmetsLayer = L.geoJSON(null, {
+  style: (f) => styleForHazard(f.properties.hazard, f.properties.severity),
+  onEachFeature: (feature, layer) => {
+    layer.bindPopup(airsigmetPopup(feature));
+  },
+});
+
+let airsigmetsRefreshTimer = null;
+const AIRSIG_REFRESH_MS = 5 * 60 * 1000;
+
+async function refreshAirsigmets() {
+  try {
+    const r = await fetch("/api/airsigmets");
+    const fc = await r.json();
+    airsigmetsLayer.clearLayers();
+    airsigmetsLayer.addData(fc);
+  } catch (_) { /* ignore; current overlay stays */ }
+}
+
 const overlays = {
   "VFR Sectional (zoom in past 8)": vfrLayer,
+  "Hazards (AIRMET/SIGMET)": airsigmetsLayer,
   "Live radar (RainViewer)": placeholderLayer,
 };
 
 map.on("overlayadd", async (e) => {
+  if (e.name === "Hazards (AIRMET/SIGMET)") {
+    await refreshAirsigmets();
+    if (!airsigmetsRefreshTimer) {
+      airsigmetsRefreshTimer = setInterval(refreshAirsigmets, AIRSIG_REFRESH_MS);
+    }
+    return;
+  }
   if (e.name !== "Live radar (RainViewer)") return;
   rvHud = new RvHudControl();
   rvHud.addTo(map);
@@ -432,6 +510,13 @@ map.on("overlayadd", async (e) => {
 });
 
 map.on("overlayremove", (e) => {
+  if (e.name === "Hazards (AIRMET/SIGMET)") {
+    if (airsigmetsRefreshTimer) {
+      clearInterval(airsigmetsRefreshTimer);
+      airsigmetsRefreshTimer = null;
+    }
+    return;
+  }
   if (e.name !== "Live radar (RainViewer)") return;
   for (const layer of rvFrames) {
     if (map.hasLayer(layer)) map.removeLayer(layer);

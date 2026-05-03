@@ -19,6 +19,7 @@ def test_scheduler_registers_all_jobs(tmp_path, monkeypatch):
         "prune_old",
         "ingest_nws_forecasts",
         "fetch_radar_images",
+        "ingest_airsigmets",
     }
 
 
