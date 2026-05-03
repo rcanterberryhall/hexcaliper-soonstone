@@ -10,7 +10,7 @@ This document is the handoff for Claude Code to build the v0 prototype.
 
 **Name:** `Soonstone`. After the Norse *sólarsteinn* — a crystal that revealed the sun's position through overcast skies via polarized-light filtering. The original instrument cut through cloud cover to find the present; this project cuts through forecast noise to find the future, with appropriate honesty about how soon and how reliably. Joins the Hexcaliper Arthurian/CS-pun family (LanceLLMot, Parsival, merLLM) with a Pratchett-flavored register: a name that sounds like an artifact from a saga, with a small embedded joke about the inherent tentativeness of forecasting.
 
-**Domain:** `weather.hexcaliper.com`, routed through the existing Cloudflare Tunnel.
+**Domain:** `soonstone.hexcaliper.com`, routed through the existing Cloudflare Tunnel.
 
 **Repo location:** `/GitHub/soonstone/` on the R730.
 
@@ -461,7 +461,7 @@ The prototype is done when:
 
 1. The Flask app starts cleanly via `install.sh` and `docker-compose up`.
 2. Background jobs run on schedule and populate the database without errors for at least 24 consecutive hours.
-3. The map renders at `https://weather.hexcaliper.com` with all Florida ASOS stations visible.
+3. The map renders at `https://soonstone.hexcaliper.com` with all Florida ASOS stations visible.
 4. Clicking a station that has both a recent METAR and a TAF from ~24h ago shows a populated three-section popup.
 5. The convergence strip shows at least one column for stations with sufficient TAF history (i.e., any station that has had at least one TAF issuance in the last 24 hours), with column count varying per station based on actual TAF issuances during the window.
 6. The forward strip shows the change groups of the currently active TAF in chronological order, with TEMPO/PROB groups visually distinct from BASE/FM/BECMG groups.
@@ -586,8 +586,8 @@ Any deviation from this plan is fine if there is a good reason — but document 
 
 These were open questions that have been answered. Listed here so the rationale is preserved.
 
-1. **Project name:** `Soonstone`. After the Norse *sólarsteinn*, with a pun on "soon" — the original instrument cut through cloud cover to find the present sun, this project cuts through forecast noise to find the future weather. Pratchett-flavored register fits the existing Hexcaliper naming family. Repo at `/GitHub/soonstone/`, Python package `soonstone`, served at `weather.hexcaliper.com`.
-2. **Domain:** `weather.hexcaliper.com`.
+1. **Project name:** `Soonstone`. After the Norse *sólarsteinn*, with a pun on "soon" — the original instrument cut through cloud cover to find the present sun, this project cuts through forecast noise to find the future weather. Pratchett-flavored register fits the existing Hexcaliper naming family. Repo at `/GitHub/soonstone/`, Python package `soonstone`, served at `soonstone.hexcaliper.com`.
+2. **Domain:** `soonstone.hexcaliper.com`.
 3. **Database engine and deployment:** SQLite with WAL mode, single application container, volume-mounted database file at `./data/soonstone.db`. Consistent with other Hexcaliper projects. Volume math (5K rows/day at v0, 50K/day at full CONUS, ~100M rows after 5 years at full scale) sits comfortably inside SQLite's working envelope. SQLite is in-process and not amenable to its own container — a separate "database container" would either be a no-op (volume-only) or would turn SQLite into a worse Postgres via a network protocol. Migration to Postgres is a known one-day operation if concurrency requirements ever justify it; see Operational Notes for the threshold.
 4. **Initial station scope:** Florida ASOS/AWOS only, ~59 stations. Chosen because Florida gets frequent convective weather, so the verification angle has signal from day one. Convective TAFs (TEMPO TSRA, PROB30/40 groups) will appear in the dataset within hours of deployment most days from late spring through early fall. Expanding to full CONUS (~900 stations) is a one-line config change once the parser and ingestion are verified working — planned for v0.5 once v0 has run cleanly for ~72 hours.
 5. **Backfill posture:** no backfill at deployment. The first 24 hours of operation will show empty or partial convergence panels while data accumulates. Acceptable tradeoff to avoid IEM integration work in v0; a clean start also gives us a clean test of the ingestion pipeline without confounding it with imported data of different provenance. IEM backfill remains an option for a later version if early operational experience shows it would meaningfully improve the user experience.

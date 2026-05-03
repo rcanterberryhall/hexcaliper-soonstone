@@ -1,6 +1,6 @@
 # Soonstone — Deployment
 
-Self-hosted forecast verification service. Deployed via Docker Compose, exposed at `weather.hexcaliper.com` through the existing Cloudflare Tunnel.
+Self-hosted forecast verification service. Deployed via Docker Compose, exposed at `soonstone.hexcaliper.com` through the existing Cloudflare Tunnel.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ The container publishes port 5055 to the host. Add the following ingress rule to
 
 ```yaml
 ingress:
-  - hostname: weather.hexcaliper.com
+  - hostname: soonstone.hexcaliper.com
     service: http://localhost:5055
   # ... your existing rules
   - service: http_status:404
@@ -43,10 +43,10 @@ The `/health` endpoint returns 503 until the first `ingest_metars` AND `ingest_t
 docker exec soonstone python -m soonstone --run-once refresh_stations
 docker exec soonstone python -m soonstone --run-once ingest_metars
 docker exec soonstone python -m soonstone --run-once ingest_tafs
-curl -s https://weather.hexcaliper.com/health | python3 -m json.tool
+curl -s https://soonstone.hexcaliper.com/health | python3 -m json.tool
 ```
 
-Then open `https://weather.hexcaliper.com/` in a browser; click any Florida station marker; the three-section popup should populate.
+Then open `https://soonstone.hexcaliper.com/` in a browser; click any Florida station marker; the three-section popup should populate.
 
 ## Updates
 

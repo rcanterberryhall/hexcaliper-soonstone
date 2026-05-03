@@ -20,7 +20,7 @@ TAF_DIR = REPO_ROOT / "tests" / "fixtures" / "tafs"
 METAR_STATIONS = ["KMIA", "KTPA", "KMCO", "KEYW", "KTLH", "KJAX"]
 TAF_STATIONS = ["KMIA", "KTPA", "KMCO", "KEYW", "KTLH", "KJAX", "KFLL", "KPBI"]
 
-USER_AGENT = "soonstone-fixture-capture/0.0.1 (+weather.hexcaliper.com)"
+USER_AGENT = "soonstone-fixture-capture/0.0.1 (+soonstone.hexcaliper.com)"
 BASE = "https://aviationweather.gov/api/data"
 
 

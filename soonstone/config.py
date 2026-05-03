@@ -37,7 +37,7 @@ class Config:
             ),
             http_user_agent=os.environ.get(
                 "SOONSTONE_USER_AGENT",
-                "soonstone/0.0.1 (forecast verification; +weather.hexcaliper.com)",
+                "soonstone/0.0.1 (forecast verification; +soonstone.hexcaliper.com)",
             ),
         )
 
