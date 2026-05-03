@@ -70,6 +70,23 @@ def test_refresh_stations_is_idempotent(session_factory, cfg):
     assert row.last_seen is not None
 
 
+def test_refresh_stations_quarters_the_bbox(session_factory, cfg):
+    """AWC stationinfo caps each call at 400 rows; refresh splits the bbox into 4."""
+    awc = _mock_awc([
+        {"icaoId": "KMIA", "lat": 25.79, "lon": -80.29, "elev": 9,
+         "site": "Miami", "state": "FL", "country": "US"},
+    ])
+    with session_factory() as session:
+        refresh_stations(session, awc, cfg)
+    assert awc.fetch_stations.call_count == 4
+    # Each sub-bbox sent must be 'south,west,north,east' with 4 floats.
+    for call in awc.fetch_stations.call_args_list:
+        bbox = call.kwargs.get("bbox") or call.args[0]
+        parts = bbox.split(",")
+        assert len(parts) == 4
+        [float(p) for p in parts]  # raises if any are non-numeric
+
+
 def test_refresh_stations_marks_taf_sites(session_factory, cfg):
     awc = _mock_awc([
         {"icaoId": "KMIA", "lat": 25.79, "lon": -80.29, "elev": 9,
