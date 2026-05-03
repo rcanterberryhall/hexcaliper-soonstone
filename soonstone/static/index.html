@@ -247,6 +247,10 @@
       font-family: var(--font);
     }
     .station-panel.open { transform: translateX(0); }
+    /* When the panel is open, push topright Leaflet controls (legend etc.)
+       inward so they aren't hidden under the panel. */
+    body.panel-open .leaflet-top.leaflet-right { right: 432px; transition: right 0.22s ease-out; }
+    .leaflet-top.leaflet-right { transition: right 0.22s ease-out; }
     .panel-close {
       position: sticky;
       top: 0;
@@ -1592,10 +1596,12 @@ function openStationPanel() {
   /* Force reflow so the transform transition fires from translateX(100%) */
   stationPanel.getBoundingClientRect();
   stationPanel.classList.add("open");
+  document.body.classList.add("panel-open");
 }
 
 function closeStationPanel() {
   stationPanel.classList.remove("open");
+  document.body.classList.remove("panel-open");
   setTimeout(() => { stationPanel.hidden = true; }, 240);
 }
 
