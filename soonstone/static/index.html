@@ -501,12 +501,27 @@ const HAZARD_STYLES = {
   ASH:         { color: "#525252", fillColor: "#525252", weight: 2,   fillOpacity: 0.30 },
 };
 
+/* AWC returns severity as either a numeric 0-6 (airsigmet endpoint) or as
+   the string code 'NONE'/'MOD'/'SEV'. Normalize both. */
+function severityBucket(s) {
+  if (s == null) return null;
+  if (typeof s === "string") {
+    if (s === "SEV") return "SEV";
+    if (s === "MOD") return "MOD";
+    return null;
+  }
+  if (s >= 4) return "SEV";
+  if (s >= 2) return "MOD";
+  return null;
+}
+
 function styleForHazard(hazard, severity) {
   const base = HAZARD_STYLES[hazard] || {
     color: "#94a3b8", fillColor: "#94a3b8", weight: 1.5, fillOpacity: 0.15,
   };
-  if (severity === "SEV") return { ...base, weight: base.weight + 1 };
-  if (severity === "MOD" && !base.dashArray) return { ...base, dashArray: "3,3" };
+  const bucket = severityBucket(severity);
+  if (bucket === "SEV") return { ...base, weight: base.weight + 1 };
+  if (bucket === "MOD" && !base.dashArray) return { ...base, dashArray: "3,3" };
   return base;
 }
 
@@ -528,7 +543,8 @@ function isoFromAwcTimestring(s) {
 function airsigmetPopup(feature) {
   const p = feature.properties || {};
   const head = `${p.airSigmetType || "BULLETIN"}: ${p.hazard || ""}`;
-  const sev = p.severity && p.severity !== "NONE" ? ` &middot; ${p.severity}` : "";
+  const bucket = severityBucket(p.severity);
+  const sev = bucket ? ` &middot; ${bucket}` : "";
   const fromIso = isoFromAwcTimestring(p.validTimeFrom);
   const toIso = isoFromAwcTimestring(p.validTimeTo);
   const valid = (fromIso && toIso) ? fmtTimeRange(fromIso, toIso) : "—";
