@@ -34,10 +34,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
     engine = create_engine_with_pragmas(cfg.database_url)
     awc = AwcClient(config=cfg)
 
+    state_file: Path | None = None
+    if cfg.database_url.startswith("sqlite:///"):
+        db_path = Path(cfg.database_url[len("sqlite:///") :])
+        state_file = db_path.parent / "jobhealth.json"
+
     app.extensions["soonstone_config"] = cfg
     app.extensions["soonstone_engine"] = engine
     app.extensions["soonstone_awc_client"] = awc
-    app.extensions["soonstone_health"] = JobHealth()
+    app.extensions["soonstone_health"] = JobHealth(state_file=state_file)
 
     app.register_blueprint(stations_bp)
     app.register_blueprint(snapshot_bp)
