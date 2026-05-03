@@ -2,42 +2,34 @@
 
 Usage:
     python -m soonstone --run-once <job_name>      # single run, then exit
-    python -m soonstone --serve                    # start scheduler, block
+    python -m soonstone --serve                    # scheduler + Flask, block
 
 job_name is one of: refresh_stations, ingest_metars, ingest_tafs, prune_old
 """
 from __future__ import annotations
 
 import argparse
-import signal
 import sys
-import threading
 
 from soonstone.app import create_app
 from soonstone.scheduler import build_scheduler, run_once
 
 
 def _serve(app) -> None:
+    """Start scheduler in background thread, then block in Flask serving HTTP."""
     scheduler = build_scheduler(app)
     scheduler.start()
-
-    stop = threading.Event()
-
-    def _on_term(_signum, _frame):
-        stop.set()
-
-    signal.signal(signal.SIGTERM, _on_term)
-    signal.signal(signal.SIGINT, _on_term)
-
-    stop.wait()
-    scheduler.shutdown(wait=True)
+    try:
+        app.run(host="0.0.0.0", port=5055, use_reloader=False, threaded=True)
+    finally:
+        scheduler.shutdown(wait=True)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="soonstone")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--run-once", metavar="JOB", help="run one job and exit")
-    group.add_argument("--serve", action="store_true", help="start scheduler, block on SIGTERM")
+    group.add_argument("--serve", action="store_true", help="scheduler + Flask, block")
     args = parser.parse_args(argv)
 
     app = create_app()
