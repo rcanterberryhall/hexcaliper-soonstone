@@ -10,6 +10,7 @@ from typing import Optional
 
 from flask import Flask
 
+from soonstone.api.health import bp as health_bp
 from soonstone.api.snapshot import bp as snapshot_bp
 from soonstone.api.stations import bp as stations_bp
 from soonstone.config import Config
@@ -36,5 +37,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
 
     app.register_blueprint(stations_bp)
     app.register_blueprint(snapshot_bp)
+    app.register_blueprint(health_bp)
 
     return app
