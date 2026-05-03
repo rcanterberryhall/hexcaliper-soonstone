@@ -49,6 +49,20 @@ class TafsResult:
 
 
 @dataclass(frozen=True)
+class NwsResult:
+    stations_processed: int
+    forecasts_inserted: int
+    forecasts_skipped_duplicate: int
+    points_lookups: int
+    fetch_failures: int
+
+    def as_log_extra(self) -> dict:
+        d = asdict(self)
+        d["job"] = "ingest_nws_forecasts"
+        return d
+
+
+@dataclass(frozen=True)
 class PruneResult:
     raw_metars_nulled: int
     raw_tafs_nulled: int
