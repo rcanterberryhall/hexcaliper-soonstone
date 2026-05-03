@@ -553,6 +553,109 @@ setInterval(() => {
   nexradLayer.setUrl(NEXRAD_TILE_URL + "?v=" + Math.floor(Date.now() / 60000));
 }, 5 * 60 * 1000);
 
+/* NEXRAD animated overlay — preload last hour of frames at 5-min cadence
+   from IEM's timestamped layer namespace, cycle visibility every 700 ms.
+   Mirrors the RainViewer animation but on NOAA's NEXRAD composite. */
+
+const NX_FRAME_COUNT      = 12;
+const NX_FRAME_INTERVAL   = 700;
+const NX_REFRESH_INTERVAL = 5 * 60 * 1000;
+const NX_OPACITY          = 0.65;
+
+let nxFrames = [];
+let nxCurrentIdx = 0;
+let nxAnimTimer = null;
+let nxRefreshTimer = null;
+let nxPaused = false;
+let nxHud = null;
+
+function _nxPad(n) { return n < 10 ? "0" + n : "" + n; }
+
+function _nxFrameTimestamps() {
+  /* Most recent 12 5-min boundaries, biased ~5 min back so the freshest
+     frame is just-published rather than not-yet-published. */
+  const out = [];
+  const head = new Date();
+  head.setSeconds(0, 0);
+  head.setMinutes(head.getMinutes() - (head.getMinutes() % 5) - 5);
+  for (let i = NX_FRAME_COUNT - 1; i >= 0; i--) {
+    const t = new Date(head.getTime() - i * 5 * 60 * 1000);
+    out.push({
+      time: Math.floor(t.getTime() / 1000),
+      stamp:
+        t.getUTCFullYear() +
+        _nxPad(t.getUTCMonth() + 1) +
+        _nxPad(t.getUTCDate()) +
+        _nxPad(t.getUTCHours()) +
+        _nxPad(t.getUTCMinutes()),
+    });
+  }
+  return out;
+}
+
+function _nxUrl(stamp) {
+  return `https://mesonet.agron.iastate.edu/c/tile.py/1.0.0/ridge::USCOMP-N0Q-${stamp}/{z}/{x}/{y}.png`;
+}
+
+function nxRebuild() {
+  for (const layer of nxFrames) if (map.hasLayer(layer)) map.removeLayer(layer);
+  nxFrames = [];
+  for (const f of _nxFrameTimestamps()) {
+    const layer = L.tileLayer(_nxUrl(f.stamp), {
+      opacity: 0,
+      attribution: 'Radar &copy; NOAA / IEM',
+      maxZoom: 18,
+      maxNativeZoom: 9,
+    });
+    layer._nxTime = f.time;
+    layer.addTo(map);
+    nxFrames.push(layer);
+  }
+  nxCurrentIdx = nxFrames.length - 1;
+  nxShowFrame(nxCurrentIdx);
+}
+
+function nxShowFrame(idx) {
+  for (let i = 0; i < nxFrames.length; i++) {
+    nxFrames[i].setOpacity(i === idx ? NX_OPACITY : 0);
+  }
+  if (nxHud) nxHud._update(nxFrames[idx]._nxTime);
+}
+
+function nxTick() {
+  if (nxPaused || !nxFrames.length) return;
+  nxCurrentIdx = (nxCurrentIdx + 1) % nxFrames.length;
+  nxShowFrame(nxCurrentIdx);
+}
+
+const NxHudControl = L.Control.extend({
+  options: { position: "bottomleft" },
+  onAdd: function () {
+    const div = L.DomUtil.create("div", "rv-hud");
+    div.innerHTML =
+      '<span style="color:var(--blue)">NEXRAD</span> ' +
+      '<button id="nx-toggle" title="play/pause">&#9208;</button>' +
+      '<span id="nx-time">…</span>';
+    L.DomEvent.disableClickPropagation(div);
+    div.querySelector("#nx-toggle").addEventListener("click", () => {
+      nxPaused = !nxPaused;
+      div.querySelector("#nx-toggle").innerHTML = nxPaused ? "&#9654;" : "&#9208;";
+    });
+    return div;
+  },
+  _update: function (epochSec) {
+    const dt = new Date(epochSec * 1000);
+    const local = dt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const utc =
+      String(dt.getUTCHours()).padStart(2, "0") + ":" +
+      String(dt.getUTCMinutes()).padStart(2, "0");
+    const span = document.getElementById("nx-time");
+    if (span) span.textContent = `${local} (${utc} UTC)`;
+  },
+});
+
+const nexradAnimPlaceholder = L.layerGroup();
+
 /* NOAA GOES GeoColor via NASA GIBS. Time-parametric URL — recompute the
    most recent 10-min boundary on enable and on each 10-min refresh tick. */
 function _gibsTimestamp() {
@@ -665,6 +768,7 @@ const overlays = {
   "VFR Sectional (zoom in past 8)": vfrLayer,
   "Hazards (AIRMET/SIGMET)": airsigmetsLayer,
   "NEXRAD radar (NOAA, current)": nexradLayer,
+  "NEXRAD radar (NOAA, animated)": nexradAnimPlaceholder,
   "GOES GeoColor clouds (NOAA, day)": gibsLayer,
   "Live radar (RainViewer, animated)": radarPlaceholder,
 };
@@ -704,6 +808,17 @@ map.on("overlayadd", async (e) => {
     await rvEnsureStarted();
     return;
   }
+  if (e.name === "NEXRAD radar (NOAA, animated)") {
+    if (!nxHud) {
+      nxHud = new NxHudControl();
+      nxHud.addTo(map);
+      nxPaused = false;
+    }
+    nxRebuild();
+    if (!nxAnimTimer) nxAnimTimer = setInterval(nxTick, NX_FRAME_INTERVAL);
+    if (!nxRefreshTimer) nxRefreshTimer = setInterval(nxRebuild, NX_REFRESH_INTERVAL);
+    return;
+  }
 });
 
 map.on("overlayremove", async (e) => {
@@ -717,6 +832,14 @@ map.on("overlayremove", async (e) => {
   if (e.name === "Live radar (RainViewer, animated)") {
     rvRadarOn = false;
     rvMaybeStop();
+    return;
+  }
+  if (e.name === "NEXRAD radar (NOAA, animated)") {
+    for (const layer of nxFrames) if (map.hasLayer(layer)) map.removeLayer(layer);
+    nxFrames = [];
+    if (nxHud)        { map.removeControl(nxHud); nxHud = null; }
+    if (nxAnimTimer)  { clearInterval(nxAnimTimer); nxAnimTimer = null; }
+    if (nxRefreshTimer) { clearInterval(nxRefreshTimer); nxRefreshTimer = null; }
     return;
   }
 });
