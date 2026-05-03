@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Soonstone">
+  <defs>
+    <radialGradient id="jewel" cx="0.38" cy="0.38" r="0.62">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="35%" stop-color="#bae6fd"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </radialGradient>
+    <linearGradient id="prism-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#e0f2fe" stop-opacity="0.85"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer jewel sphere -->
+  <circle cx="32" cy="32" r="28" fill="url(#jewel)" stroke="#f59e0b" stroke-width="2"/>
+
+  <!-- Inner facet sparkle -->
+  <circle cx="22" cy="22" r="3" fill="#ffffff" fill-opacity="0.9"/>
+
+  <!-- Triangular prism (point left, refracting face right) -->
+  <polygon points="18,32 42,20 42,44" fill="url(#prism-fill)" stroke="#0284c7" stroke-width="1.3" stroke-linejoin="round"/>
+
+  <!-- Incoming light ray (upper-left into the prism's left point) -->
+  <line x1="4" y1="14" x2="18" y2="32" stroke="#fef3c7" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Refracted rays exiting the right face, dispersing -->
+  <line x1="42" y1="22" x2="60" y2="13" stroke="#fbbf24" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="42" y1="32" x2="62" y2="32" stroke="#7dd3fc" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="42" y1="42" x2="60" y2="51" stroke="#0ea5e9" stroke-width="2.2" stroke-linecap="round"/>
+</svg>
