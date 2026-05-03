@@ -220,13 +220,13 @@
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 const CAT_COLOR = {
-  VFR: "#2ca02c", MVFR: "#1f77b4", IFR: "#d62728", LIFR: "#9467bd"
+  VFR: "#3fb950", MVFR: "#58a6ff", IFR: "#ff7b7b", LIFR: "#d093ff"
 };
-const CAT_BG = (cat) => CAT_COLOR[cat] || "#94a3b8"; /* slate-400 for unknown */
+const CAT_BG = (cat) => CAT_COLOR[cat] || "#cbd5e1"; /* slate-300 for unknown on dark */
 
 const map = L.map("map", { zoomControl: true }).setView([27.5, -83.5], 6);
 L.tileLayer(
-  "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
   {
     attribution: '&copy; OSM &copy; CARTO',
     subdomains: "abcd",
@@ -243,7 +243,7 @@ legend.onAdd = function() {
     <div class="legend-row"><span class="legend-dot" style="background:${CAT_COLOR.MVFR}"></span>MVFR</div>
     <div class="legend-row"><span class="legend-dot" style="background:${CAT_COLOR.IFR}"></span>IFR</div>
     <div class="legend-row"><span class="legend-dot" style="background:${CAT_COLOR.LIFR}"></span>LIFR</div>
-    <div class="legend-row"><span class="legend-dot" style="background:#94a3b8"></span>no data</div>
+    <div class="legend-row"><span class="legend-dot" style="background:#cbd5e1"></span>no data</div>
   `;
   return div;
 };
@@ -367,9 +367,9 @@ async function init() {
     const marker = L.circleMarker([lat, lon], {
       radius: 6,
       fillColor: CAT_BG(cat),
-      color: "#0f172a",     /* slate-900 ring */
-      weight: 1,
-      fillOpacity: 0.88,
+      color: "#0f172a",     /* slate-900 hairline ring for definition */
+      weight: 0.8,
+      fillOpacity: 0.95,
     }).addTo(map);
     marker.on("click", () => loadSnapshot(feat.properties.id, marker));
     marker.bindTooltip(`${feat.properties.id}${cat ? " (" + cat + ")" : ""}`);
