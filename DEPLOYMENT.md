@@ -5,8 +5,8 @@ Self-hosted forecast verification service. Deployed via Docker Compose, exposed 
 ## Prerequisites
 
 - Docker + `docker compose` plugin
-- An existing Cloudflare Tunnel container running on a Docker network named `cloudflare-tunnel` (shared with the other Hexcaliper services)
-- Outbound HTTPS to `aviationweather.gov` (no inbound ports needed; Cloudflare Tunnel handles ingress)
+- An existing Cloudflare Tunnel reaching this host (matches the other Hexcaliper apps, which publish their ports to the host and let the tunnel route via `http://localhost:<port>`)
+- Outbound HTTPS to `aviationweather.gov`
 
 ## First deploy
 
@@ -23,12 +23,12 @@ The container will:
 
 ## Cloudflare Tunnel route
 
-Add the following ingress rule to your existing tunnel config (`~/.cloudflared/config.yml` or the Cloudflare dashboard):
+The container publishes port 5055 to the host. Add the following ingress rule to your existing tunnel config (`~/.cloudflared/config.yml` or the Cloudflare dashboard) — same pattern the other Hexcaliper apps use:
 
 ```yaml
 ingress:
   - hostname: weather.hexcaliper.com
-    service: http://soonstone:5055
+    service: http://localhost:5055
   # ... your existing rules
   - service: http_status:404
 ```
@@ -75,4 +75,4 @@ When the database crosses ~1GB, switch to Litestream for continuous replication.
 - **`/health` stays 503**: check `docker logs soonstone` for `metar_parse_failed` or `taf_parse_failed` lines, or for upstream HTTP errors against aviationweather.gov.
 - **Map renders but markers are gray**: `/api/stations` is returning before any METARs have been ingested. Run `docker exec soonstone python -m soonstone --run-once ingest_metars`.
 - **Container restarts in a loop**: usually a migration error. `docker compose run --rm soonstone alembic upgrade head` to see the underlying error.
-- **Cloudflare returns 502 / no upstream**: the soonstone container isn't on the `cloudflare-tunnel` network. Check `docker network inspect cloudflare-tunnel`; it should list `soonstone` among its containers.
+- **Cloudflare returns 502 / no upstream**: the cloudflared service can't reach `http://localhost:5055`. Verify `docker compose ps` shows the port published, and `curl http://localhost:5055/health` works from the host.
