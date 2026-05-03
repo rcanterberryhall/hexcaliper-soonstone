@@ -68,9 +68,12 @@ def ingest_tafs(
             skipped += 1
             continue
 
-        # Auto-stub the parent station from the TAF response if it isn't
-        # in our catalog yet. AWC's stationinfo endpoint caps at 400 rows;
-        # CONUS routinely returns TAFs for stations beyond that catalog.
+        # Upsert the parent station from the TAF response and ensure its
+        # taf_site flag is 1. AWC's stationinfo endpoint marks tafSite
+        # incompletely (only ~66/1700 stations on a CONUS pull), so use
+        # 'we successfully ingested a TAF for this station' as the
+        # authoritative signal instead. ON CONFLICT DO UPDATE flips the
+        # flag for stations that already exist with taf_site=0.
         if raw_row.get("lat") is not None and raw_row.get("lon") is not None:
             stub = sqlite_insert(Station).values(
                 station_id=parsed["station_id"],
@@ -82,7 +85,10 @@ def ingest_tafs(
                 ),
                 taf_site=1,
                 active=1,
-            ).on_conflict_do_nothing(index_elements=["station_id"])
+            ).on_conflict_do_update(
+                index_elements=["station_id"],
+                set_=dict(taf_site=1),
+            )
             session.execute(stub)
 
         groups = parsed.pop("groups")
