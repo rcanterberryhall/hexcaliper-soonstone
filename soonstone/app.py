@@ -10,6 +10,7 @@ from typing import Optional
 
 from flask import Flask
 
+from soonstone.api.stations import bp as stations_bp
 from soonstone.config import Config
 from soonstone.db import create_engine_with_pragmas
 from soonstone.health import JobHealth
@@ -31,5 +32,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.extensions["soonstone_engine"] = engine
     app.extensions["soonstone_awc_client"] = awc
     app.extensions["soonstone_health"] = JobHealth()
+
+    app.register_blueprint(stations_bp)
 
     return app
