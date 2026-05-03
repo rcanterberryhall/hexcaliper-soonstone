@@ -9,29 +9,29 @@
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <style>
     :root {
-      /* Light theme — sunstone palette (sky-50 base, amber + sky accents) */
-      --bg:            #f0f9ff;  /* sky-50 */
-      --surface:       #ffffff;  /* white — header, cards */
-      --surface-2:     #e0f2fe;  /* sky-100 — popup-now bg, hover */
-      --surface-3:     #f1f5f9;  /* slate-100 — neutral cell */
-      --border:        #bae6fd;  /* sky-200 */
-      --border-strong: #7dd3fc;  /* sky-300 */
+      /* Dark theme — sunstone-after-dusk palette */
+      --bg:            #0d1421;  /* deep navy, sits near CartoDB Dark Matter */
+      --surface:       #142235;  /* header, cards */
+      --surface-2:     #1a2b42;  /* popup-now bg */
+      --surface-3:     #1f2f47;  /* neutral cell */
+      --border:        #1e3a5f;  /* sky-tinted subtle border */
+      --border-strong: #0ea5e9;  /* sky-500 emphasis */
 
-      /* Brand */
-      --blue:          #0284c7;  /* sky-600 — primary action / link */
-      --blue-bright:   #0ea5e9;  /* sky-500 */
-      --yellow:        #f59e0b;  /* amber-500 — header stripe, AMD highlight */
-      --yellow-soft:   #fef3c7;  /* amber-100 — AMD cell tint */
+      /* Brand (brighter on dark for parity with merLLM / lancellmot) */
+      --blue:          #38bdf8;  /* sky-400 */
+      --blue-bright:   #7dd3fc;  /* sky-300 */
+      --yellow:        #fbbf24;  /* amber-400 — header stripe, AMD highlight */
+      --yellow-soft:   #3a2806;  /* amber-950ish — AMD cell tint on dark */
 
       /* Text */
-      --text:          #0f172a;  /* slate-900 */
-      --text-muted:    #64748b;  /* slate-500 */
+      --text:          #e0f2fe;  /* sky-100 */
+      --text-muted:    #94a3b8;  /* slate-400 */
 
-      /* Aviation flight categories (domain convention; do not theme) */
-      --cat-vfr:  #2ca02c;
-      --cat-mvfr: #1f77b4;
-      --cat-ifr:  #d62728;
-      --cat-lifr: #9467bd;
+      /* Aviation flight categories (brightened-for-dark; matches map markers) */
+      --cat-vfr:  #3fb950;
+      --cat-mvfr: #58a6ff;
+      --cat-ifr:  #ff7b7b;
+      --cat-lifr: #d093ff;
 
       --radius:        8px;
       --font:          -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
@@ -59,11 +59,11 @@
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       border-top: 3px solid var(--yellow);
-      box-shadow: 0 2px 8px rgba(2, 132, 199, 0.08);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
     }
     header img {
       width: 36px; height: 36px;
-      filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.35));
+      filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.55));
     }
     header h1 {
       font-size: 16px;
@@ -91,7 +91,7 @@
       padding: 8px 12px;
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      box-shadow: 0 2px 6px rgba(2, 132, 199, 0.12);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
       font-size: 12px;
       line-height: 1.7;
       color: var(--text);
@@ -103,12 +103,18 @@
       color: var(--text-muted); margin-bottom: 4px;
     }
 
-    /* Popup — light theme with sky-tinted surfaces and amber AMD accent */
+    /* Popup — dark surface with sky-tinted borders and amber AMD accent */
     .leaflet-popup-content-wrapper {
       border-radius: var(--radius);
-      box-shadow: 0 4px 16px rgba(2, 132, 199, 0.18);
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7);
+      border: 1px solid var(--border);
     }
+    .leaflet-popup-tip { background: var(--surface); }
     .leaflet-popup-content { margin: 10px 12px; min-width: 320px; max-width: 480px; }
+    .leaflet-popup-close-button { color: var(--text-muted) !important; }
+    .leaflet-popup-close-button:hover { color: var(--text) !important; }
 
     .popup-station {
       font-weight: 700;
@@ -172,13 +178,13 @@
       border-width: 1.5px;
     }
     .cell.tempo {
-      background: #ecfeff; /* cyan-50 */
-      border-color: #67e8f9; /* cyan-300 */
+      background: #0c2a32; /* deep cyan */
+      border-color: #22d3ee; /* cyan-400 */
       border-style: dashed;
     }
     .cell.prob {
-      background: #f5f3ff; /* violet-50 */
-      border-color: #c4b5fd; /* violet-300 */
+      background: #1f1240; /* deep violet */
+      border-color: #a78bfa; /* violet-400 */
       border-style: dashed;
     }
     .cell-time { font-weight: 700; color: var(--text); }
@@ -191,7 +197,7 @@
     .caveat {
       margin-top: 4px;
       padding: 3px 5px;
-      background: rgba(255, 255, 255, 0.6);
+      background: rgba(0, 0, 0, 0.35);
       border-left: 2px solid var(--blue);
       border-radius: 2px;
       font-size: 10px;
