@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from flask import Flask
@@ -50,6 +51,16 @@ def _make_runner(app: Flask, fn, name: str):
 
 def build_scheduler(app: Flask) -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="UTC")
+
+    health = app.extensions["soonstone_health"]
+
+    def _on_event(event):
+        if event.exception:
+            health.record_error(event.job_id, event.exception)
+        else:
+            health.record_success(event.job_id)
+
+    scheduler.add_listener(_on_event, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
     scheduler.add_job(
         _make_runner(app, refresh_stations, "refresh_stations"),
@@ -89,4 +100,12 @@ def run_once(job_name: str, app: Flask) -> None:
     if job_name not in fn_map:
         raise ValueError(f"unknown job: {job_name}")
     runner = _make_runner(app, fn_map[job_name], job_name)
-    runner()
+    health = app.extensions.get("soonstone_health")
+    try:
+        runner()
+        if health:
+            health.record_success(job_name)
+    except Exception as exc:
+        if health:
+            health.record_error(job_name, exc)
+        raise

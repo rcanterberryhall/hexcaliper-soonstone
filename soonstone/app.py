@@ -12,6 +12,7 @@ from flask import Flask
 
 from soonstone.config import Config
 from soonstone.db import create_engine_with_pragmas
+from soonstone.health import JobHealth
 from soonstone.ingestion.awc_client import AwcClient
 from soonstone.logging import configure_logging
 
@@ -29,5 +30,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.extensions["soonstone_config"] = cfg
     app.extensions["soonstone_engine"] = engine
     app.extensions["soonstone_awc_client"] = awc
+    app.extensions["soonstone_health"] = JobHealth()
 
     return app
