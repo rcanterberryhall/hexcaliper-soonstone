@@ -110,6 +110,14 @@
     .leaflet-control-attribution a {
       color: var(--blue) !important;
     }
+    .leaflet-control-layers {
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border) !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+    }
+    .leaflet-control-layers-base label { color: var(--text); }
+    .leaflet-control-layers-separator { border-top-color: var(--border) !important; }
 
     /* Legend — branded card */
     .legend {
@@ -257,14 +265,28 @@ const CAT_COLOR = {
 const CAT_BG = (cat) => CAT_COLOR[cat] || "#cbd5e1"; /* slate-300 for unknown on dark */
 
 const map = L.map("map", { zoomControl: true }).setView([27.5, -83.5], 6);
-L.tileLayer(
-  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  {
-    attribution: '&copy; OSM &copy; CARTO',
-    subdomains: "abcd",
-    maxZoom: 19,
-  }
-).addTo(map);
+
+const baseLayers = {
+  "Dark": L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    { attribution: '&copy; OSM &copy; CARTO', subdomains: "abcd", maxZoom: 19 }
+  ),
+  "Streets": L.tileLayer(
+    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }
+  ),
+  "VFR Sectional": L.tileLayer(
+    "https://wms.chartbundle.com/tms/v1.0/sec/{z}/{x}/{y}.png?type=google",
+    {
+      attribution: '&copy; <a href="https://chartbundle.com/">ChartBundle</a> · FAA',
+      maxZoom: 12,
+      maxNativeZoom: 11,
+    }
+  ),
+};
+baseLayers["Dark"].addTo(map);
+
+L.control.layers(baseLayers, null, { position: "topright", collapsed: false }).addTo(map);
 
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = function() {
