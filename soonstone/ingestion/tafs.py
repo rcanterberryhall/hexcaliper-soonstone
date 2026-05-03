@@ -6,10 +6,12 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
 from soonstone.config import Config
 from soonstone.ingestion.awc_client import AwcClient
 from soonstone.ingestion.results import TafsResult
-from soonstone.models import Taf, TafGroup
+from soonstone.models import Station, Taf, TafGroup
 from soonstone.parsers.taf_parser import parse_taf
 
 log = logging.getLogger(__name__)
@@ -65,6 +67,23 @@ def ingest_tafs(
         if _is_duplicate(session, parsed):
             skipped += 1
             continue
+
+        # Auto-stub the parent station from the TAF response if it isn't
+        # in our catalog yet. AWC's stationinfo endpoint caps at 400 rows;
+        # CONUS routinely returns TAFs for stations beyond that catalog.
+        if raw_row.get("lat") is not None and raw_row.get("lon") is not None:
+            stub = sqlite_insert(Station).values(
+                station_id=parsed["station_id"],
+                name=raw_row.get("name"),
+                latitude=float(raw_row["lat"]),
+                longitude=float(raw_row["lon"]),
+                elevation_m=(
+                    float(raw_row["elev"]) if raw_row.get("elev") is not None else None
+                ),
+                taf_site=1,
+                active=1,
+            ).on_conflict_do_nothing(index_elements=["station_id"])
+            session.execute(stub)
 
         groups = parsed.pop("groups")
         taf = Taf(**parsed)
