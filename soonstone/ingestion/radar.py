@@ -77,6 +77,7 @@ def fetch_radar_images(
                 )
                 .values(radar_image_path=str(target.relative_to(radar_dir.parent)))
             )
+            session.commit()
             skipped += 1
             continue
 
@@ -100,10 +101,13 @@ def fetch_radar_images(
             )
             .values(radar_image_path=str(target.relative_to(radar_dir.parent)))
         )
+        # Commit per-image so we hold the write lock for ms at a time
+        # instead of batching all ~400 across several minutes (which
+        # blocks the METAR/TAF jobs at their next cron tick).
+        session.commit()
         fetched += 1
         time.sleep(_REQUEST_GAP_SEC)
 
-    session.commit()
     return RadarResult(
         observations_scanned=scanned,
         images_fetched=fetched,

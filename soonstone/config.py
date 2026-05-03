@@ -25,10 +25,17 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
+        database_url = os.environ.get(
+            "DATABASE_URL", "sqlite:///./data/soonstone.db"
+        )
+        # Default radar dir = sibling of the SQLite DB file, so the same
+        # volume mount that holds /data/soonstone.db also holds /data/radar.
+        default_radar_dir = "./data/radar"
+        if database_url.startswith("sqlite:///"):
+            from pathlib import Path as _P
+            default_radar_dir = str(_P(database_url[len("sqlite:///"):]).parent / "radar")
         return cls(
-            database_url=os.environ.get(
-                "DATABASE_URL", "sqlite:///./data/soonstone.db"
-            ),
+            database_url=database_url,
             # CONUS bbox (south, west, north, east). v0 used Florida (24.0,-88.0,31.5,-79.5).
             bbox_south=float(os.environ.get("SOONSTONE_BBOX_SOUTH", "24.5")),
             bbox_west=float(os.environ.get("SOONSTONE_BBOX_WEST", "-125.0")),
@@ -42,7 +49,7 @@ class Config:
                 "SOONSTONE_USER_AGENT",
                 "soonstone/0.0.1 (forecast verification; +soonstone.hexcaliper.com)",
             ),
-            radar_dir=os.environ.get("SOONSTONE_RADAR_DIR", "./data/radar"),
+            radar_dir=os.environ.get("SOONSTONE_RADAR_DIR", default_radar_dir),
             iem_base_url=os.environ.get(
                 "IEM_BASE_URL", "https://mesonet.agron.iastate.edu"
             ),
