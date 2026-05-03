@@ -221,6 +221,34 @@
     .friendly-row .fr-cond { color: var(--text); }
     .friendly-row .fr-temp { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; }
     .friendly-row.now      { background: #1e3050; border-left: 2px solid var(--blue); }
+
+    /* Forecast-vs-actual row used in 'Past 24 h forecasts' section. */
+    .verify-row {
+      display: grid;
+      grid-template-columns: 56px 1fr 1fr;
+      gap: 8px;
+      padding: 5px 8px;
+      background: var(--surface-3);
+      border-radius: 4px;
+      font-size: 12px;
+      align-items: center;
+    }
+    .verify-row.miss   { border-left: 2px solid var(--cat-ifr); background: #2a1818; }
+    .verify-row .v-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .verify-row .v-cell { display: flex; align-items: center; gap: 6px; }
+    .verify-row .v-icon { font-size: 16px; }
+    .verify-row .v-label { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+    .verify-row .v-actual-missing { color: var(--text-muted); font-style: italic; font-size: 11px; }
+    .verify-header {
+      display: grid;
+      grid-template-columns: 56px 1fr 1fr;
+      gap: 8px;
+      padding: 0 8px 4px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
     .friendly-section {
       display: flex; flex-direction: column;
       gap: 3px;
@@ -1507,15 +1535,49 @@ function consumerNowBlock(now, station) {
     </div>`;
 }
 
+function verifyRow(entry) {
+  const anchor = entry.anchor_hour;
+  const pred = entry.predicted || {};
+  const act = entry.actual;
+
+  const predIcon = consumerIcon(pred, anchor);
+  const predCond = consumerCondition(pred);
+
+  let actContent;
+  let isMiss = false;
+  if (act) {
+    const actIcon = consumerIcon(act, anchor);
+    const actCond = consumerCondition(act);
+    const actTempF = celsiusToF(act.temp_c);
+    const actTempLabel = actTempF != null ? `${actTempF}°F` : "";
+    actContent = `<span class="v-icon">${actIcon}</span><span>${actCond}${actTempLabel ? " · " + actTempLabel : ""}</span>`;
+    /* Miss = predicted vs actual flight category disagree (the same rule
+       the aviation convergence cell uses to flag divergence). */
+    if (pred.flight_category && act.flight_category && pred.flight_category !== act.flight_category) {
+      isMiss = true;
+    }
+  } else {
+    actContent = `<span class="v-actual-missing">no observation</span>`;
+  }
+
+  return `
+    <div class="verify-row${isMiss ? " miss" : ""}">
+      <span class="v-time">${fmtHourLabel(anchor)}</span>
+      <div class="v-cell"><span class="v-icon">${predIcon}</span><span>${predCond}</span></div>
+      <div class="v-cell">${actContent}</div>
+    </div>`;
+}
+
 function consumerPanelHtml(snap) {
   const name = snap.station.name ? `<span class="station-name">${snap.station.name}</span>` : "";
-  const recent = (snap.recent || []).slice().reverse(); /* most-recent first */
+  const verify = (snap.historic_predictions || []).slice().reverse(); /* newest first */
   const hourly = snap.hourly || [];
   const nws = (snap.forward || []).filter((f) => f.forecast_source === "NWS");
 
-  const recentBlock = recent.length
-    ? `<div class="friendly-section">${recent.map((r) => friendlyHourRow(r)).join("")}</div>`
-    : `<div class="empty">no observations in the last 24 h</div>`;
+  const verifyBlock = verify.length
+    ? `<div class="verify-header"><span></span><span>Forecast</span><span>Actual</span></div>
+       <div class="friendly-section">${verify.map(verifyRow).join("")}</div>`
+    : `<div class="empty">no historical TAF coverage in the last 24 h</div>`;
 
   const hourlyBlock = hourly.length
     ? `<div class="friendly-section">${hourly.map((h) => friendlyHourRowNoTemp(h)).join("")}</div>`
@@ -1534,8 +1596,8 @@ function consumerPanelHtml(snap) {
   return `
     <div class="popup-station">${snap.station.id}${name}</div>
     ${consumerNowBlock(snap.now, snap.station)}
-    <div class="popup-section-label">Past 24 hours</div>
-    ${recentBlock}
+    <div class="popup-section-label">Past 24 hours: forecast vs actual</div>
+    ${verifyBlock}
     <div class="popup-section-label">Next 24 hours (from TAF)</div>
     ${hourlyBlock}
     ${nwsBlock ? `<div class="popup-section-label">Multi-day outlook (NWS)</div>${nwsBlock}` : ""}

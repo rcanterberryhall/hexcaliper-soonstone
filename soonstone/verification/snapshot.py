@@ -224,6 +224,90 @@ def _recent_section(
     return out
 
 
+def _historic_predictions_section(
+    session: Session, station_id: str, now: datetime
+) -> list[dict]:
+    """For each of the past 24 hour anchors: what did the TAF active at that
+    hour predict, and what actually happened.
+
+    This is the verification-thesis view in time-series form — instead of
+    'multiple past forecasts converging on now' (the convergence panel),
+    it's 'one forecast per hour, side-by-side with the actual'."""
+    out: list[dict] = []
+    for hours_ago in range(24, -1, -1):
+        anchor = now - timedelta(hours=hours_ago)
+        anchor_iso = _iso(anchor)
+
+        # Latest TAF issued at or before anchor whose valid window covers anchor.
+        taf = session.execute(
+            select(Taf)
+            .where(
+                Taf.station_id == station_id,
+                Taf.issued_at <= anchor_iso,
+                Taf.valid_from <= anchor_iso,
+                Taf.valid_to >= anchor_iso,
+            )
+            .order_by(Taf.issued_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if taf is None:
+            continue
+        groups = list(taf.groups)
+        if not groups:
+            continue
+        state = resolve_taf_at(anchor, groups[0], groups[1:])
+
+        # Closest observation within ±45 min of anchor.
+        before = _iso(anchor - timedelta(minutes=45))
+        after = _iso(anchor + timedelta(minutes=45))
+        obs = session.execute(
+            select(Observation)
+            .where(
+                Observation.station_id == station_id,
+                Observation.observed_at >= before,
+                Observation.observed_at <= after,
+            )
+            .order_by(Observation.observed_at)
+            .limit(1)
+        ).scalar_one_or_none()
+
+        actual = None
+        if obs is not None:
+            actual = {
+                "observed_at": obs.observed_at,
+                "temp_c": obs.temp_c,
+                "wind_dir_deg": obs.wind_dir_deg,
+                "wind_speed_kt": obs.wind_speed_kt,
+                "wind_gust_kt": obs.wind_gust_kt,
+                "visibility_sm": obs.visibility_sm,
+                "weather": obs.present_weather,
+                "cloud_layers": obs.cloud_layers,
+                "ceiling_ft": obs.ceiling_ft,
+                "flight_category": obs.flight_category,
+            }
+
+        lead = (anchor - _parse_iso(taf.issued_at)).total_seconds() / 3600.0
+        out.append({
+            "anchor_hour": anchor_iso,
+            "predicted": {
+                "wind_dir_deg": state.wind_dir_deg,
+                "wind_speed_kt": state.wind_speed_kt,
+                "wind_gust_kt": state.wind_gust_kt,
+                "visibility_sm": state.visibility_sm,
+                "weather": state.weather,
+                "cloud_layers": state.cloud_layers,
+                "ceiling_ft": state.ceiling_ft,
+                "flight_category": state.flight_category,
+            },
+            "actual": actual,
+            "issued_at": taf.issued_at,
+            "amendment_type": taf.amendment_type,
+            "lead_hours": round(lead, 1),
+        })
+    return out
+
+
 def _hourly_forecast_section(
     session: Session, station_id: str, now: datetime
 ) -> list[dict]:
@@ -282,6 +366,7 @@ def build_snapshot(
         },
         "now": _now_section(session, station_id),
         "recent": _recent_section(session, station_id, now),
+        "historic_predictions": _historic_predictions_section(session, station_id, now),
         "hourly": _hourly_forecast_section(session, station_id, now),
         "convergence": _convergence_section(session, station_id, now),
         "forward": _forward_section(session, station_id, now),
