@@ -284,9 +284,9 @@ const baseLayers = {
     { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }
   ),
   "VFR Sectional": L.tileLayer(
-    "https://wms.chartbundle.com/tms/v1.0/sec/{z}/{x}/{y}.png?type=google",
+    "https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}",
     {
-      attribution: '&copy; <a href="https://chartbundle.com/">ChartBundle</a> · FAA',
+      attribution: 'VFR charts &copy; FAA',
       maxZoom: 18,
       maxNativeZoom: 11,
     }
