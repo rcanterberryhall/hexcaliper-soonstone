@@ -728,16 +728,32 @@ function showUserLocation(latlng, recenter) {
 map.on("locationfound", (e) => {
   showUserLocation(e.latlng, !userMovedMap);
 });
-map.on("locationerror", (e) => {
-  /* Surface why so the user knows it's not silently broken.
-     code 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT */
-  const code = e.code;
-  let msg = "Couldn't determine your location.";
-  if (code === 1) msg = "Location permission denied. Click ◎ in the topleft to retry.";
-  else if (code === 2) msg = "Your location is unavailable right now.";
-  else if (code === 3) msg = "Locating timed out. Click ◎ to try again.";
-  showToast(msg, "warn", 6000);
-});
+async function handleLocationError(e) {
+  /* code 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT */
+  if (e.code === 2) return showToast("Your location is unavailable right now.", "warn", 6000);
+  if (e.code === 3) return showToast("Locating timed out. Click ◎ to try again.", "warn", 6000);
+
+  /* Permission denied. Disambiguate transient vs persistent. The
+     Permissions API tells us whether the browser will silently deny
+     forever (state==='denied') or still ask on next attempt ('prompt'). */
+  let persistent = false;
+  if (navigator.permissions && navigator.permissions.query) {
+    try {
+      const r = await navigator.permissions.query({ name: "geolocation" });
+      persistent = r.state === "denied";
+    } catch (_) { /* old browsers; fall back to short message */ }
+  }
+  if (persistent) {
+    showToast(
+      "Location is blocked for this site. Click the lock icon in the address bar → Location → Allow, then reload.",
+      "warn", 12000,
+    );
+  } else {
+    showToast("Location permission denied. Click ◎ in the topleft to retry.", "warn", 6000);
+  }
+}
+
+map.on("locationerror", handleLocationError);
 
 if (!navigator.geolocation) {
   showToast("Geolocation isn't supported by this browser.", "warn", 6000);
