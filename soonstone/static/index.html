@@ -72,6 +72,32 @@
       color: var(--text);
     }
     header h1 .accent { color: var(--blue); }
+
+    /* Mode toggle (Aviation / Friendly) — segmented control in the header */
+    .mode-toggle {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-left: 12px;
+    }
+    .mode-toggle button {
+      background: var(--surface);
+      color: var(--text-muted);
+      border: none;
+      padding: 4px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: var(--font);
+      letter-spacing: 0.02em;
+    }
+    .mode-toggle button.active {
+      background: var(--surface-2);
+      color: var(--text);
+      box-shadow: inset 0 -2px 0 var(--yellow);
+    }
+    .mode-toggle button:hover:not(.active) { color: var(--text); }
+
     header .tagline {
       margin-left: 4px;
       font-size: 12px;
@@ -155,6 +181,51 @@
     }
     .toast.toast-warn { border-color: var(--yellow); }
     .toast.toast-err  { border-color: var(--cat-ifr); }
+
+    /* Consumer / friendly mode */
+    .friendly-now {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px 14px;
+      align-items: center;
+      padding: 10px 12px;
+      background: var(--surface-2);
+      border-left: 3px solid var(--yellow);
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+    .friendly-now-icon { font-size: 44px; line-height: 1; }
+    .friendly-now-temp { font-size: 28px; font-weight: 600; color: var(--text); }
+    .friendly-now-cond { color: var(--text-muted); font-size: 13px; line-height: 1.3; }
+    .friendly-now-meta {
+      grid-column: 1 / -1;
+      display: flex; flex-wrap: wrap; gap: 12px;
+      font-size: 11px; color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      padding-top: 6px;
+      margin-top: 2px;
+    }
+
+    .friendly-row {
+      display: grid;
+      grid-template-columns: 56px 32px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 8px;
+      background: var(--surface-3);
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .friendly-row .fr-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .friendly-row .fr-icon { font-size: 18px; text-align: center; }
+    .friendly-row .fr-cond { color: var(--text); }
+    .friendly-row .fr-temp { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; }
+    .friendly-row.now      { background: #1e3050; border-left: 2px solid var(--blue); }
+    .friendly-section {
+      display: flex; flex-direction: column;
+      gap: 3px;
+      padding: 2px 0 6px;
+    }
 
     /* Slide-in station panel — fills the right edge below the header. */
     .station-panel {
@@ -293,14 +364,12 @@
     }
 
     .strip {
-      display: flex; gap: 4px;
-      overflow-x: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
       padding: 2px 0 6px;
     }
     .cell {
-      flex: 0 0 auto;
-      min-width: 130px;
-      max-width: 180px;
       padding: 6px 8px;
       background: var(--surface-3);
       border-radius: 4px;
@@ -308,7 +377,13 @@
       line-height: 1.4;
       border: 1px solid var(--border);
       color: var(--text);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 12px;
+      align-items: baseline;
     }
+    .cell > * { min-width: 0; }
+    .cell-time { grid-column: 1 / -1; font-weight: 700; color: var(--text); }
     .cell.amend {
       background: var(--yellow-soft);
       border-color: var(--yellow);
@@ -335,7 +410,6 @@
     .cell.nws .cell-time {
       color: var(--blue-bright);
     }
-    .cell-time { font-weight: 700; color: var(--text); }
     .cell-cat {
       display: inline-block; padding: 0 5px;
       border-radius: 2px; color: white;
@@ -365,6 +439,10 @@
 <header>
   <img src="/static/soonstone.svg" alt="Soonstone">
   <h1>Soon<span class="accent">stone</span></h1>
+  <div class="mode-toggle" id="mode-toggle" role="tablist">
+    <button data-mode="friendly" role="tab">Friendly</button>
+    <button data-mode="aviation" role="tab">Aviation</button>
+  </div>
   <span class="tagline">forecast verification &middot; <span id="station-count">…</span> stations</span>
 </header>
 
@@ -1324,6 +1402,142 @@ function forwardCell(f) {
     </div>`;
 }
 
+/* ─── Consumer / "Friendly" mode rendering ──────────────────────────── */
+
+/* Pick an emoji icon from a slice's weather + cloud_layers + sky-time. */
+function consumerIcon(slice, anchorIso) {
+  const wxArr = (() => { try { return JSON.parse(slice.weather || "[]"); } catch { return []; } })();
+  const cloudArr = (() => { try { return JSON.parse(slice.cloud_layers || "[]"); } catch { return []; } })();
+  const wxStr = wxArr.join(" ");
+  if (/TS/i.test(wxStr)) return "⛈️";
+  if (/SN|SG|IC/.test(wxStr)) return "🌨️";
+  if (/RA|DZ/.test(wxStr)) return "🌧️";
+  if (/FG|BR|HZ|FU/.test(wxStr)) return "🌫️";
+
+  const covers = cloudArr.map((l) => l.cover);
+  const night = isLocalNight(anchorIso);
+  if (covers.includes("OVC")) return "☁️";
+  if (covers.includes("BKN")) return night ? "☁️" : "⛅";
+  if (covers.includes("SCT")) return night ? "🌙" : "🌤️";
+  return night ? "🌙" : "☀️";
+}
+
+function isLocalNight(iso) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const h = d.getHours();
+  return h < 6 || h >= 20;
+}
+
+function celsiusToF(c) {
+  if (c == null) return null;
+  return Math.round(c * 9 / 5 + 32);
+}
+
+function consumerCondition(slice) {
+  /* Translate the slice's weather/cloud info into one short phrase. */
+  const wxArr = (() => { try { return JSON.parse(slice.weather || "[]"); } catch { return []; } })();
+  const cloudArr = (() => { try { return JSON.parse(slice.cloud_layers || "[]"); } catch { return []; } })();
+  if (wxArr.length) return wxArr.map(decodeWeatherToken).join(", ");
+  const covers = cloudArr.map((l) => l.cover);
+  if (covers.includes("OVC")) return "Overcast";
+  if (covers.includes("BKN")) return "Mostly cloudy";
+  if (covers.includes("SCT")) return "Partly cloudy";
+  if (covers.includes("FEW")) return "Mostly clear";
+  return "Clear";
+}
+
+function fmtHourLabel(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "numeric" });
+}
+
+function friendlyHourRow(slice, isNow = false) {
+  const tempF = celsiusToF(slice.temp_c);
+  const tempLabel = tempF != null ? `${tempF}°F` : "—";
+  return `
+    <div class="friendly-row${isNow ? " now" : ""}">
+      <span class="fr-time">${isNow ? "Now" : fmtHourLabel(slice.anchor_hour || slice.observed_at)}</span>
+      <span class="fr-icon">${consumerIcon(slice, slice.anchor_hour || slice.observed_at)}</span>
+      <span class="fr-cond">${consumerCondition(slice)}</span>
+      <span class="fr-temp">${tempLabel}</span>
+    </div>`;
+}
+
+function friendlyHourRowNoTemp(slice) {
+  /* Forecast rows from TAF have no temperature. Same shape but blank temp slot. */
+  return `
+    <div class="friendly-row">
+      <span class="fr-time">${fmtHourLabel(slice.anchor_hour)}</span>
+      <span class="fr-icon">${consumerIcon(slice, slice.anchor_hour)}</span>
+      <span class="fr-cond">${consumerCondition(slice)}</span>
+      <span class="fr-temp" style="color:var(--text-muted)">${slice.wind_speed_kt != null ? Math.round(slice.wind_speed_kt) + " kt" : "—"}</span>
+    </div>`;
+}
+
+function consumerNowBlock(now, station) {
+  if (!now) return `<div class="empty">no recent observation</div>`;
+  const tempF = celsiusToF(now.temp_c);
+  const tempLabel = tempF != null ? `${tempF}°F` : "—";
+  const cond = consumerCondition(now);
+  const icon = consumerIcon(now, now.observed_at);
+  const wind = fmtWind(now);
+  const obsTime = new Date(now.observed_at).getTime();
+  const ageMin = (Date.now() - obsTime) / 60000;
+  const stale = ageMin > 90;
+  const meta = [
+    `${wind}`,
+    `Visibility ${fmtVis(now.visibility_sm)}`,
+    `${fmtCeiling(now.ceiling_ft)}`,
+    stale ? `<span style="color:var(--cat-ifr)">stale (${Math.round(ageMin)} min ago)</span>` : `As of ${fmtTime(now.observed_at)}`,
+  ];
+  return `
+    <div class="friendly-now${stale ? " stale" : ""}">
+      <div class="friendly-now-icon">${icon}</div>
+      <div>
+        <div class="friendly-now-temp">${tempLabel}</div>
+        <div class="friendly-now-cond">${cond}</div>
+      </div>
+      <div class="friendly-now-meta">${meta.join(" &middot; ")}</div>
+    </div>`;
+}
+
+function consumerPanelHtml(snap) {
+  const name = snap.station.name ? `<span class="station-name">${snap.station.name}</span>` : "";
+  const recent = (snap.recent || []).slice().reverse(); /* most-recent first */
+  const hourly = snap.hourly || [];
+  const nws = (snap.forward || []).filter((f) => f.forecast_source === "NWS");
+
+  const recentBlock = recent.length
+    ? `<div class="friendly-section">${recent.map((r) => friendlyHourRow(r)).join("")}</div>`
+    : `<div class="empty">no observations in the last 24 h</div>`;
+
+  const hourlyBlock = hourly.length
+    ? `<div class="friendly-section">${hourly.map((h) => friendlyHourRowNoTemp(h)).join("")}</div>`
+    : `<div class="empty">no active TAF for hourly forecast</div>`;
+
+  const nwsBlock = nws.length
+    ? `<div class="friendly-section">${nws.map((p) => `
+        <div class="friendly-row">
+          <span class="fr-time" style="grid-column:span 2">${p.period_name || ""}</span>
+          <span class="fr-cond">${p.short_forecast || ""}</span>
+          <span class="fr-temp">${p.temperature_f != null ? p.temperature_f + "°F" : ""}</span>
+        </div>
+      `).join("")}</div>`
+    : "";
+
+  return `
+    <div class="popup-station">${snap.station.id}${name}</div>
+    ${consumerNowBlock(snap.now, snap.station)}
+    <div class="popup-section-label">Past 24 hours</div>
+    ${recentBlock}
+    <div class="popup-section-label">Next 24 hours (from TAF)</div>
+    ${hourlyBlock}
+    ${nwsBlock ? `<div class="popup-section-label">Multi-day outlook (NWS)</div>${nwsBlock}` : ""}
+  `;
+}
+
 function popupHtml(snap) {
   const observedCat = snap.now ? snap.now.flight_category : null;
   const convStrip = snap.convergence.length
@@ -1346,6 +1560,32 @@ function popupHtml(snap) {
 
 const stationPanel     = document.getElementById("station-panel");
 const stationPanelBody = document.getElementById("station-panel-body");
+
+/* Display mode — 'friendly' (consumer / weather-channel style) or
+   'aviation' (METAR/TAF semantics). Persisted in localStorage. */
+let displayMode = localStorage.getItem("soonstone.mode") || "friendly";
+let lastSnap = null;  /* re-render on mode flip without re-fetching */
+
+function setDisplayMode(mode) {
+  if (mode !== "friendly" && mode !== "aviation") return;
+  displayMode = mode;
+  localStorage.setItem("soonstone.mode", mode);
+  document.querySelectorAll("#mode-toggle button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+  });
+  if (lastSnap && !stationPanel.hidden) {
+    stationPanelBody.innerHTML = renderPanel(lastSnap);
+  }
+}
+
+function renderPanel(snap) {
+  return displayMode === "aviation" ? popupHtml(snap) : consumerPanelHtml(snap);
+}
+
+document.querySelectorAll("#mode-toggle button").forEach((b) => {
+  b.addEventListener("click", () => setDisplayMode(b.dataset.mode));
+});
+setDisplayMode(displayMode);  /* initial highlight */
 
 function openStationPanel() {
   stationPanel.hidden = false;
@@ -1375,7 +1615,8 @@ async function loadSnapshot(stationId) {
     const resp = await fetch(`/api/stations/${stationId}/snapshot`);
     if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
     const snap = await resp.json();
-    stationPanelBody.innerHTML = popupHtml(snap);
+    lastSnap = snap;
+    stationPanelBody.innerHTML = renderPanel(snap);
   } catch (err) {
     stationPanelBody.innerHTML = `<div class="err">error: ${err.message}</div>`;
   }

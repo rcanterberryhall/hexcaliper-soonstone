@@ -176,6 +176,93 @@ def _forward_section(
     return out
 
 
+def _recent_section(
+    session: Session, station_id: str, now: datetime
+) -> list[dict]:
+    """Hourly-cadence observations from the past 24h.
+
+    For each of the past 25 hour anchors (24h ago through now), pick the
+    closest observation within 90 min of the anchor. Skip hours with no
+    nearby observation. Used by the consumer-mode 'past 24h' strip.
+    """
+    cutoff = _iso(now - timedelta(hours=25))
+    rows = session.execute(
+        select(Observation)
+        .where(
+            Observation.station_id == station_id,
+            Observation.observed_at >= cutoff,
+            Observation.observed_at <= _iso(now),
+        )
+        .order_by(Observation.observed_at)
+    ).scalars().all()
+
+    out: list[dict] = []
+    for hours_ago in range(24, -1, -1):
+        anchor = now - timedelta(hours=hours_ago)
+        best = None
+        best_diff = float("inf")
+        for o in rows:
+            d = abs((_parse_iso(o.observed_at) - anchor).total_seconds())
+            if d < best_diff:
+                best = o
+                best_diff = d
+        if best is None or best_diff > 90 * 60:
+            continue
+        out.append({
+            "anchor_hour": _iso(anchor),
+            "observed_at": best.observed_at,
+            "temp_c": best.temp_c,
+            "wind_dir_deg": best.wind_dir_deg,
+            "wind_speed_kt": best.wind_speed_kt,
+            "wind_gust_kt": best.wind_gust_kt,
+            "visibility_sm": best.visibility_sm,
+            "weather": best.present_weather,
+            "cloud_layers": best.cloud_layers,
+            "ceiling_ft": best.ceiling_ft,
+            "flight_category": best.flight_category,
+        })
+    return out
+
+
+def _hourly_forecast_section(
+    session: Session, station_id: str, now: datetime
+) -> list[dict]:
+    """Hourly-cadence forecast for the next 24h, derived from the active TAF.
+
+    Walks the TAF's change groups via resolve_taf_at at each hourly anchor.
+    Stops when we exit the TAF's valid window. TAFs don't forecast
+    temperature, so the consumer view will fall back to NWS for temp.
+    """
+    taf = _active_taf(session, station_id, now)
+    if taf is None:
+        return []
+    groups = list(taf.groups)
+    if not groups:
+        return []
+    base = groups[0]
+    change = groups[1:]
+    valid_to = _parse_iso(taf.valid_to)
+
+    out: list[dict] = []
+    for hours_ahead in range(0, 25):
+        anchor = now + timedelta(hours=hours_ahead)
+        if anchor > valid_to:
+            break
+        state = resolve_taf_at(anchor, base, change)
+        out.append({
+            "anchor_hour": _iso(anchor),
+            "wind_dir_deg": state.wind_dir_deg,
+            "wind_speed_kt": state.wind_speed_kt,
+            "wind_gust_kt": state.wind_gust_kt,
+            "visibility_sm": state.visibility_sm,
+            "weather": state.weather,
+            "cloud_layers": state.cloud_layers,
+            "ceiling_ft": state.ceiling_ft,
+            "flight_category": state.flight_category,
+        })
+    return out
+
+
 def build_snapshot(
     session: Session, station_id: str, now: datetime | None = None
 ) -> dict | None:
@@ -194,6 +281,8 @@ def build_snapshot(
             "lon": station.longitude,
         },
         "now": _now_section(session, station_id),
+        "recent": _recent_section(session, station_id, now),
+        "hourly": _hourly_forecast_section(session, station_id, now),
         "convergence": _convergence_section(session, station_id, now),
         "forward": _forward_section(session, station_id, now),
     }
