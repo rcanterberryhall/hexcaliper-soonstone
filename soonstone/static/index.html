@@ -1903,19 +1903,9 @@ function detailHtml(entry) {
     </table>`;
 }
 
-/* Click handler on the station panel body — picks up clicks on .verify-row
-   even though the rows are HTML strings that get re-rendered on every
-   snapshot fetch. */
-stationPanelBody.addEventListener("click", (e) => {
-  const row = e.target.closest(".verify-row");
-  if (!row) return;
-  const idx = Number(row.dataset.verifyIdx);
-  if (!Number.isFinite(idx)) return;
-  const entry = verifyEntries[idx];
-  if (!entry) return;
-  detailPanelBody.innerHTML = detailHtml(entry);
-  openDetailPanel();
-});
+/* The verify-row click handler is wired down where stationPanelBody is
+   defined (further below). Putting it here would TDZ-error on the
+   const stationPanelBody declaration further down the file. */
 
 function consumerPanelHtml(snap) {
   const name = snap.station.name ? `<span class="station-name">${snap.station.name}</span>` : "";
@@ -1978,6 +1968,20 @@ function popupHtml(snap) {
 
 const stationPanel     = document.getElementById("station-panel");
 const stationPanelBody = document.getElementById("station-panel-body");
+
+/* Click handler on the station panel body — picks up clicks on .verify-row
+   even though the rows are HTML strings that get re-rendered on every
+   snapshot fetch. Defined HERE (after stationPanelBody) so we don't TDZ. */
+stationPanelBody.addEventListener("click", (e) => {
+  const row = e.target.closest(".verify-row");
+  if (!row) return;
+  const idx = Number(row.dataset.verifyIdx);
+  if (!Number.isFinite(idx)) return;
+  const entry = verifyEntries[idx];
+  if (!entry) return;
+  detailPanelBody.innerHTML = detailHtml(entry);
+  openDetailPanel();
+});
 
 /* Display mode — 'friendly' (consumer / weather-channel style) or
    'aviation' (METAR/TAF semantics). Persisted in localStorage. */
