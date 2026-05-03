@@ -146,7 +146,7 @@
       border: 1px solid var(--border);
     }
     .leaflet-popup-tip { background: var(--surface); }
-    .leaflet-popup-content { margin: 10px 12px; min-width: 320px; max-width: 480px; }
+    .leaflet-popup-content { margin: 10px 12px; min-width: 340px; max-width: 560px; }
     .leaflet-popup-close-button { color: var(--text-muted) !important; }
     .leaflet-popup-close-button:hover { color: var(--text) !important; }
 
@@ -193,12 +193,13 @@
     }
     .cell {
       flex: 0 0 auto;
-      min-width: 96px;
-      padding: 5px 7px;
+      min-width: 130px;
+      max-width: 180px;
+      padding: 6px 8px;
       background: var(--surface-3);
       border-radius: 4px;
       font-size: 11px;
-      line-height: 1.35;
+      line-height: 1.4;
       border: 1px solid var(--border);
       color: var(--text);
     }
@@ -303,78 +304,216 @@ legend.onAdd = function() {
 };
 legend.addTo(map);
 
+/* ─── Decoders: aviation jargon → plain English ─────────────────── */
+
+const COMPASS = ["N","NNE","NE","ENE","E","ESE","SE","SSE",
+                 "S","SSW","SW","WSW","W","WNW","NW","NNW"];
+
+function compass(deg) {
+  if (deg == null) return null;
+  return COMPASS[Math.round(((deg % 360) / 22.5)) % 16];
+}
+
+const FLIGHT_CAT_LABEL = {
+  VFR:  { name: "VFR",  desc: "Clear, good for flight" },
+  MVFR: { name: "MVFR", desc: "Marginal — reduced visibility or low clouds" },
+  IFR:  { name: "IFR",  desc: "Instrument conditions — poor visibility or low ceiling" },
+  LIFR: { name: "LIFR", desc: "Low instrument — very poor conditions" },
+};
+
+const CLOUD_COVER = {
+  SKC: "sky clear", CLR: "clear",
+  FEW: "few clouds", SCT: "scattered clouds",
+  BKN: "broken clouds", OVC: "overcast",
+  VV: "vertical visibility limited to",
+};
+
+const CLOUD_TYPE = { CB: "cumulonimbus (thunderstorm)", TCU: "towering cumulus" };
+
+const WX_INTENSITY  = { "+": "heavy ", "-": "light ", "VC": "nearby " };
+const WX_DESCRIPTOR = {
+  MI: "shallow ", PR: "partial ", BC: "patchy ", DR: "drifting ",
+  BL: "blowing ", SH: "showers of ", TS: "thunderstorm with ", FZ: "freezing ",
+};
+const WX_PRECIP = {
+  DZ: "drizzle", RA: "rain", SN: "snow", SG: "snow grains",
+  IC: "ice crystals", PL: "ice pellets", GR: "hail",
+  GS: "small hail", UP: "unknown precipitation",
+};
+const WX_OBSCURE = {
+  BR: "mist", FG: "fog", FU: "smoke", VA: "volcanic ash",
+  DU: "dust", SA: "sand", HZ: "haze",
+};
+const WX_OTHER = {
+  PO: "dust whirls", SQ: "squall", FC: "funnel cloud",
+  SS: "sandstorm", DS: "duststorm",
+};
+function decodeWeatherToken(tok) {
+  let i = 0, out = "";
+  if (tok[0] === "+" || tok[0] === "-") { out += WX_INTENSITY[tok[0]]; i++; }
+  else if (tok.startsWith("VC")) { out += WX_INTENSITY["VC"]; i += 2; }
+  while (i < tok.length) {
+    const two = tok.substring(i, i + 2);
+    const map = WX_DESCRIPTOR[two] || WX_PRECIP[two] || WX_OBSCURE[two] || WX_OTHER[two];
+    if (map) { out += map; i += 2; }
+    else { out += tok[i]; i++; }
+  }
+  return out.trim();
+}
+
+const GROUP_LABEL = {
+  BASE:   "Base forecast",
+  FM:     "From",
+  BECMG:  "Becoming",
+  TEMPO:  "Temporarily",
+  PROB30: "30% chance",
+  PROB40: "40% chance",
+};
+
+const AMEND_LABEL = { AMD: "Amended", COR: "Corrected", RTD: "Routine delayed" };
+
+/* ─── Formatters: render decoded values for display ─────────────── */
+
 function fmtWind(d) {
-  if (d.wind_speed_kt == null) return "—";
-  const dir = d.wind_dir_deg == null ? "VRB" : String(d.wind_dir_deg).padStart(3, "0");
+  if (d.wind_speed_kt == null || d.wind_speed_kt === 0) return "Calm";
+  const dir = d.wind_dir_deg == null ? "Variable" : compass(d.wind_dir_deg);
   const spd = Math.round(d.wind_speed_kt);
-  const gust = d.wind_gust_kt ? `G${Math.round(d.wind_gust_kt)}` : "";
-  return `${dir}/${spd}${gust}`;
+  let s = `${dir} ${spd} kt`;
+  if (d.wind_gust_kt) s += ` gust ${Math.round(d.wind_gust_kt)}`;
+  return s;
 }
 
 function fmtVis(v) {
   if (v == null) return "—";
-  return v >= 6 ? "6+SM" : `${v}SM`;
+  if (v >= 10) return "10+ mi";
+  if (v >= 6) return "6+ mi";
+  if (v >= 3) return `${v} mi`;
+  if (v >= 1) return `${v} mi (low)`;
+  return `${v} mi (very low)`;
 }
 
 function fmtCeiling(c) {
-  return c == null ? "—" : `${c.toLocaleString()}ft`;
+  return c == null ? "no ceiling reported" : `cloud base ${c.toLocaleString()} ft`;
 }
 
-function fmtLead(h) {
+function fmtClouds(layersJson) {
+  if (!layersJson) return null;
+  let layers;
+  try { layers = JSON.parse(layersJson); } catch { return null; }
+  if (!layers || !layers.length) return null;
+  return layers.map(l => {
+    const cover = CLOUD_COVER[l.cover] || l.cover;
+    if (l.base_ft == null) return cover;
+    const ct = CLOUD_TYPE[l.type] ? ` ${CLOUD_TYPE[l.type]}` : "";
+    return `${cover} at ${l.base_ft.toLocaleString()} ft${ct}`;
+  }).join(", ");
+}
+
+function fmtWeather(weatherJson) {
+  if (!weatherJson) return null;
+  let arr;
+  try { arr = JSON.parse(weatherJson); } catch { return null; }
+  if (!arr || !arr.length) return null;
+  return arr.map(decodeWeatherToken).join(", ");
+}
+
+function fmtLeadAgo(h) {
   if (h == null) return "";
-  if (Math.abs(h) < 1) return `${Math.round(h * 60)}min`;
-  return `${h.toFixed(1)}h`;
+  if (h < 1) return `${Math.round(h * 60)} min ago`;
+  if (h < 2) return `${h.toFixed(1)} h ago`;
+  return `${Math.round(h)} h ago`;
 }
 
-function isoToHHMM(iso) {
-  return iso.slice(11, 16) + "Z";
+function fmtLeadFwd(h) {
+  if (h == null) return "";
+  if (h < 0) {
+    const a = Math.abs(h);
+    if (a < 1) return `${Math.round(a * 60)} min ago`;
+    return `${a.toFixed(1)} h ago`;
+  }
+  if (h < 1) return `in ${Math.round(h * 60)} min`;
+  if (h < 24) return `in ${h.toFixed(1)} h`;
+  return `in ${Math.round(h)} h`;
 }
 
-function catBadge(cat) {
+function fmtTimeUTC(iso) {
+  return iso.slice(11, 16) + " UTC";
+}
+
+function fmtCatBadge(cat) {
   if (!cat) return "";
-  return `<span class="cell-cat" style="background:${CAT_BG(cat)}">${cat}</span>`;
+  return `<span class="cell-cat" style="background:${CAT_BG(cat)}" title="${(FLIGHT_CAT_LABEL[cat] || {}).desc || ""}">${cat}</span>`;
 }
+
+/* ─── Render functions ──────────────────────────────────────────── */
 
 function nowBlock(now) {
   if (!now) return `<div class="empty">no recent observation</div>`;
+  const cat = FLIGHT_CAT_LABEL[now.flight_category];
+  const wx = fmtWeather(now.weather);
+  const clouds = fmtClouds(now.cloud_layers);
+  const wxLine = wx ? `<div>Weather: ${wx}</div>` : "";
+  const cloudLine = clouds ? `<div>${clouds}</div>` : "";
   return `
     <div class="popup-now">
-      <div><strong>${isoToHHMM(now.observed_at)}</strong> &middot; ${now.metar_type || "METAR"}</div>
-      <div>${fmtWind(now)} &middot; ${fmtVis(now.visibility_sm)} &middot; ceiling ${fmtCeiling(now.ceiling_ft)}
-        &nbsp; <span class="popup-now-cat" style="background:${CAT_BG(now.flight_category)}">${now.flight_category || "—"}</span>
+      <div><strong>At ${fmtTimeUTC(now.observed_at)}</strong> &middot; ${now.metar_type === "SPECI" ? "Special observation" : "Observation"}</div>
+      <div>${fmtWind(now)}</div>
+      <div>Visibility ${fmtVis(now.visibility_sm)} &middot; ${fmtCeiling(now.ceiling_ft)}</div>
+      ${cloudLine}
+      ${wxLine}
+      <div style="margin-top:4px">
+        <span class="popup-now-cat" style="background:${CAT_BG(now.flight_category)}">${now.flight_category || "—"}</span>
+        ${cat ? `<span style="margin-left:6px;color:var(--text-muted)">${cat.desc}</span>` : ""}
       </div>
     </div>`;
 }
 
 function caveatBlock(cav) {
-  const prob = cav.probability_pct ? `PROB${cav.probability_pct}` : "TEMPO";
-  return `<div class="caveat">${prob} ${isoToHHMM(cav.group_from)}–${isoToHHMM(cav.group_to)}: ${fmtWind(cav)} &middot; ${fmtVis(cav.visibility_sm)} ${catBadge(cav.flight_category)}</div>`;
+  const head = cav.probability_pct ? `${cav.probability_pct}% chance` : "Temporarily";
+  const wx = fmtWeather(cav.weather);
+  const clouds = fmtClouds(cav.cloud_layers);
+  const parts = [`<strong>${head}</strong> ${fmtTimeUTC(cav.group_from)}–${fmtTimeUTC(cav.group_to)}`];
+  parts.push(`${fmtWind(cav)} &middot; visibility ${fmtVis(cav.visibility_sm)}`);
+  if (clouds) parts.push(clouds);
+  if (wx) parts.push(`Weather: ${wx}`);
+  if (cav.flight_category) parts.push(fmtCatBadge(cav.flight_category));
+  return `<div class="caveat">${parts.map(p => `<div>${p}</div>`).join("")}</div>`;
 }
 
 function convergenceCell(c, observedCat) {
   const diverged = observedCat && c.flight_category && c.flight_category !== observedCat;
   const cls = `cell ${c.amendment_type ? "amend" : ""} ${diverged ? "diverged" : ""}`.trim();
-  const tag = c.amendment_type ? `<span style="font-weight:700;color:#fbbf24">${c.amendment_type}</span> ` : "";
+  const amendLabel = c.amendment_type
+    ? `<div style="font-weight:700;color:#fbbf24" title="${AMEND_LABEL[c.amendment_type] || ""}">${c.amendment_type}</div>`
+    : "";
   return `
     <div class="${cls}">
-      <div class="cell-time">${tag}${isoToHHMM(c.issued_at)}</div>
-      <div>${fmtLead(c.lead_hours)} ago</div>
-      <div>${fmtWind(c)} ${catBadge(c.flight_category)}</div>
-      <div>${fmtVis(c.visibility_sm)}</div>
+      ${amendLabel}
+      <div class="cell-time">${fmtTimeUTC(c.issued_at)}</div>
+      <div>${fmtLeadAgo(c.lead_hours)}</div>
+      <div>${fmtWind(c)}</div>
+      <div>vis ${fmtVis(c.visibility_sm)}</div>
+      <div>${fmtCatBadge(c.flight_category)}</div>
     </div>`;
 }
 
 function forwardCell(f) {
   const cls = `cell ${f.group_type === "TEMPO" ? "tempo" : ""} ${(f.group_type || "").startsWith("PROB") ? "prob" : ""}`.trim();
-  const lead = f.lead_hours == null ? "" : (f.lead_hours < 0 ? `${Math.abs(f.lead_hours).toFixed(1)}h ago` : `+${f.lead_hours.toFixed(1)}h`);
-  const probTag = f.probability_pct ? ` (${f.probability_pct}%)` : "";
+  const label = GROUP_LABEL[f.group_type] || f.group_type;
+  const lead = fmtLeadFwd(f.lead_hours);
+  const clouds = fmtClouds(f.cloud_layers);
+  const wx = fmtWeather(f.weather);
+  const wxLine = wx ? `<div style="font-style:italic">${wx}</div>` : "";
   const caveats = (f.caveats || []).map(caveatBlock).join("");
   return `
     <div class="${cls}">
-      <div class="cell-time">${f.group_type}${probTag}</div>
-      <div>${isoToHHMM(f.valid_at)} &middot; ${lead}</div>
-      <div>${fmtWind(f)} ${catBadge(f.flight_category)}</div>
-      <div>${fmtVis(f.visibility_sm)} &middot; ${fmtCeiling(f.ceiling_ft)}</div>
+      <div class="cell-time">${label}</div>
+      <div>${fmtTimeUTC(f.valid_at)} &middot; ${lead}</div>
+      <div>${fmtWind(f)}</div>
+      <div>vis ${fmtVis(f.visibility_sm)}</div>
+      <div>${fmtCeiling(f.ceiling_ft)}</div>
+      ${wxLine}
+      <div>${fmtCatBadge(f.flight_category)}</div>
       ${caveats}
     </div>`;
 }
