@@ -64,16 +64,11 @@ def ingest_tafs(
             )
             continue
 
-        if _is_duplicate(session, parsed):
-            skipped += 1
-            continue
-
-        # Upsert the parent station from the TAF response and ensure its
-        # taf_site flag is 1. AWC's stationinfo endpoint marks tafSite
-        # incompletely (only ~66/1700 stations on a CONUS pull), so use
-        # 'we successfully ingested a TAF for this station' as the
-        # authoritative signal instead. ON CONFLICT DO UPDATE flips the
-        # flag for stations that already exist with taf_site=0.
+        # Upsert the parent station from every TAF response (BEFORE the
+        # duplicate check) so the taf_site flag flips to 1 even when the
+        # TAF body itself is unchanged. AWC's stationinfo endpoint marks
+        # tafSite incompletely; 'we successfully ingested a TAF for this
+        # station' is the authoritative signal.
         if raw_row.get("lat") is not None and raw_row.get("lon") is not None:
             stub = sqlite_insert(Station).values(
                 station_id=parsed["station_id"],
@@ -90,6 +85,10 @@ def ingest_tafs(
                 set_=dict(taf_site=1),
             )
             session.execute(stub)
+
+        if _is_duplicate(session, parsed):
+            skipped += 1
+            continue
 
         groups = parsed.pop("groups")
         taf = Taf(**parsed)
