@@ -1112,7 +1112,7 @@ const LocateControl = L.Control.extend({
 });
 new LocateControl().addTo(map);
 
-const legend = L.control({ position: "bottomright" });
+const legend = L.control({ position: "topright" });
 legend.onAdd = function() {
   const div = L.DomUtil.create("div", "legend");
   div.innerHTML = `
