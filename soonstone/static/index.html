@@ -423,7 +423,7 @@ async function rvRebuild() {
         opacity: 0,
         attribution: 'Radar &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
         maxZoom: 18,
-        maxNativeZoom: 14,
+        maxNativeZoom: 8,  /* radar's ~1km resolution bottoms out here; above z=8 the tiles are empty */
         tileSize: RV_TILE_SIZE,
         zoomOffset: -1,  /* required when tileSize=512 to keep zoom math right */
       });
@@ -443,7 +443,7 @@ async function rvRebuild() {
         opacity: 0,
         attribution: 'Satellite &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
         maxZoom: 18,
-        maxNativeZoom: 8,  /* satellite tiles much coarser than radar */
+        maxNativeZoom: 8,
         tileSize: RV_TILE_SIZE,
         zoomOffset: -1,
       });
@@ -539,6 +539,40 @@ const RvHudControl = L.Control.extend({
 
 const placeholderLayer = L.layerGroup();
 
+/* NOAA NEXRAD radar via IEM. Single static layer, refreshed every 5 min by
+   bumping a version query string. Native cap z=9 (radar's ~1 km resolution
+   bottoms out around there); above that, Leaflet upscales the z=9 tiles. */
+const NEXRAD_TILE_URL = "https://mesonet.agron.iastate.edu/c/tile.py/1.0.0/ridge::USCOMP-N0Q-0/{z}/{x}/{y}.png";
+const nexradLayer = L.tileLayer(NEXRAD_TILE_URL + "?v=" + Math.floor(Date.now() / 60000), {
+  opacity: 0.65,
+  attribution: 'Radar &copy; NOAA / IEM',
+  maxZoom: 18,
+  maxNativeZoom: 9,
+});
+setInterval(() => {
+  nexradLayer.setUrl(NEXRAD_TILE_URL + "?v=" + Math.floor(Date.now() / 60000));
+}, 5 * 60 * 1000);
+
+/* NOAA GOES GeoColor via NASA GIBS. Time-parametric URL — recompute the
+   most recent 10-min boundary on enable and on each 10-min refresh tick. */
+function _gibsTimestamp() {
+  const now = new Date();
+  now.setSeconds(0, 0);
+  now.setMinutes(now.getMinutes() - (now.getMinutes() % 10));
+  // GIBS expects 'YYYY-MM-DDTHH:MM:SSZ'
+  return now.toISOString().replace(/\.\d+Z$/, "Z");
+}
+function _gibsUrl() {
+  return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/${_gibsTimestamp()}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`;
+}
+const gibsLayer = L.tileLayer(_gibsUrl(), {
+  opacity: 0.55,
+  attribution: 'GOES GeoColor &copy; NOAA / NASA GIBS',
+  maxZoom: 18,
+  maxNativeZoom: 7,
+});
+setInterval(() => { gibsLayer.setUrl(_gibsUrl()); }, 10 * 60 * 1000);
+
 /* AIRMET/SIGMET overlay -- empty L.geoJSON, populated lazily on enable. */
 const HAZARD_STYLES = {
   CONVECTIVE:  { color: "#dc2626", fillColor: "#dc2626", weight: 2,   fillOpacity: 0.22, dashArray: "6,4" },
@@ -629,8 +663,9 @@ const satellitePlaceholder = L.layerGroup();
 const overlays = {
   "VFR Sectional (zoom in past 8)": vfrLayer,
   "Hazards (AIRMET/SIGMET)": airsigmetsLayer,
-  "Live radar (RainViewer)": radarPlaceholder,
-  "Cloud cover (RainViewer satellite)": satellitePlaceholder,
+  "NEXRAD radar (NOAA, current)": nexradLayer,
+  "GOES GeoColor clouds (NOAA, day)": gibsLayer,
+  "Live radar (RainViewer, animated)": radarPlaceholder,
 };
 
 async function rvEnsureStarted() {
