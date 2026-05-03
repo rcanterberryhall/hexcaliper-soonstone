@@ -45,7 +45,7 @@ def refresh_stations(
     inserted = 0
     updated = 0
     for raw in rows:
-        if "icaoId" not in raw:
+        if not raw.get("icaoId"):
             continue
         projected = _project(raw, now)
         if projected["station_id"] in existing_ids:

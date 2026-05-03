@@ -1,0 +1,57 @@
+"""CLI entrypoint for soonstone.
+
+Usage:
+    python -m soonstone --run-once <job_name>      # single run, then exit
+    python -m soonstone --serve                    # start scheduler, block
+
+job_name is one of: refresh_stations, ingest_metars, ingest_tafs, prune_old
+"""
+from __future__ import annotations
+
+import argparse
+import signal
+import sys
+import threading
+
+from soonstone.app import create_app
+from soonstone.scheduler import build_scheduler, run_once
+
+
+def _serve(app) -> None:
+    scheduler = build_scheduler(app)
+    scheduler.start()
+
+    stop = threading.Event()
+
+    def _on_term(_signum, _frame):
+        stop.set()
+
+    signal.signal(signal.SIGTERM, _on_term)
+    signal.signal(signal.SIGINT, _on_term)
+
+    stop.wait()
+    scheduler.shutdown(wait=True)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="soonstone")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--run-once", metavar="JOB", help="run one job and exit")
+    group.add_argument("--serve", action="store_true", help="start scheduler, block on SIGTERM")
+    args = parser.parse_args(argv)
+
+    app = create_app()
+
+    if args.run_once:
+        run_once(args.run_once, app)
+        return 0
+
+    if args.serve:
+        _serve(app)
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
