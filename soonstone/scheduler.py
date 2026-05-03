@@ -20,10 +20,12 @@ from apscheduler.triggers.cron import CronTrigger
 from flask import Flask
 
 from soonstone.db import make_session_factory
+from soonstone.ingestion.iem_radar import IemRadarClient
 from soonstone.ingestion.metars import ingest_metars
 from soonstone.ingestion.nws import ingest_nws_forecasts
 from soonstone.ingestion.nws_client import NwsClient
 from soonstone.ingestion.prune import prune_old
+from soonstone.ingestion.radar import fetch_radar_images
 from soonstone.ingestion.stations import refresh_stations
 from soonstone.ingestion.tafs import ingest_tafs
 
@@ -38,6 +40,14 @@ def _get_nws_client(app: Flask) -> NwsClient:
     return nws
 
 
+def _get_iem_radar_client(app: Flask) -> IemRadarClient:
+    iem = app.extensions.get("soonstone_iem_radar_client")
+    if iem is None:
+        iem = IemRadarClient(config=app.extensions["soonstone_config"])
+        app.extensions["soonstone_iem_radar_client"] = iem
+    return iem
+
+
 def _make_runner(app: Flask, fn, name: str):
     session_factory = make_session_factory(app.extensions["soonstone_engine"])
     awc_client = app.extensions["soonstone_awc_client"]
@@ -50,6 +60,8 @@ def _make_runner(app: Flask, fn, name: str):
                     result = fn(session)
                 elif fn is ingest_nws_forecasts:
                     result = fn(session, _get_nws_client(app), config)
+                elif fn is fetch_radar_images:
+                    result = fn(session, _get_iem_radar_client(app), config)
                 else:
                     result = fn(session, awc_client, config)
                 log.info("ingestion_done", extra=result.as_log_extra())
@@ -104,6 +116,14 @@ def build_scheduler(app: Flask) -> BackgroundScheduler:
         id="ingest_nws_forecasts",
         replace_existing=True,
     )
+    # Radar fetcher runs 5 min after each METAR ingest so the new
+    # observations are already in the DB.
+    scheduler.add_job(
+        _make_runner(app, fetch_radar_images, "fetch_radar_images"),
+        trigger=CronTrigger(minute="35,5"),
+        id="fetch_radar_images",
+        replace_existing=True,
+    )
     return scheduler
 
 
@@ -115,6 +135,7 @@ def run_once(job_name: str, app: Flask) -> None:
         "ingest_tafs": ingest_tafs,
         "prune_old": prune_old,
         "ingest_nws_forecasts": ingest_nws_forecasts,
+        "fetch_radar_images": fetch_radar_images,
     }
     if job_name not in fn_map:
         raise ValueError(f"unknown job: {job_name}")

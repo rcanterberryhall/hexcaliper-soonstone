@@ -20,6 +20,8 @@ class Config:
     log_level: str
     awc_base_url: str
     http_user_agent: str
+    radar_dir: str = "./data/radar"
+    iem_base_url: str = "https://mesonet.agron.iastate.edu"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -39,6 +41,10 @@ class Config:
             http_user_agent=os.environ.get(
                 "SOONSTONE_USER_AGENT",
                 "soonstone/0.0.1 (forecast verification; +soonstone.hexcaliper.com)",
+            ),
+            radar_dir=os.environ.get("SOONSTONE_RADAR_DIR", "./data/radar"),
+            iem_base_url=os.environ.get(
+                "IEM_BASE_URL", "https://mesonet.agron.iastate.edu"
             ),
         )
 

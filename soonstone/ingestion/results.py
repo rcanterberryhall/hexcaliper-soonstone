@@ -63,6 +63,19 @@ class NwsResult:
 
 
 @dataclass(frozen=True)
+class RadarResult:
+    observations_scanned: int
+    images_fetched: int
+    images_skipped_existing: int
+    fetch_failures: int
+
+    def as_log_extra(self) -> dict:
+        d = asdict(self)
+        d["job"] = "fetch_radar_images"
+        return d
+
+
+@dataclass(frozen=True)
 class PruneResult:
     raw_metars_nulled: int
     raw_tafs_nulled: int
