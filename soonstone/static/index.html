@@ -757,6 +757,14 @@ map.on("locationerror", handleLocationError);
 
 if (!navigator.geolocation) {
   showToast("Geolocation isn't supported by this browser.", "warn", 6000);
+} else if (!window.isSecureContext) {
+  /* Browsers restrict the geolocation API to secure contexts (HTTPS or
+     localhost). Reaching the site over plain HTTP on a LAN address
+     silently fails the same as 'denied'. */
+  showToast(
+    "Location requires HTTPS. Reach the site via soonstone.hexcaliper.com instead of the LAN address.",
+    "warn", 9000,
+  );
 } else {
   map.locate({ setView: false, maxZoom: LOCATE_ZOOM, enableHighAccuracy: false, timeout: 10000 });
 }
