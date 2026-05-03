@@ -138,6 +138,24 @@
       box-shadow: 0 0 0 2px var(--blue-bright), 0 0 12px rgba(56, 189, 248, 0.6);
     }
 
+    /* Toast for short-lived status messages (geolocation, satellite empty, etc.) */
+    .toast {
+      position: fixed;
+      bottom: 24px; left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 14px;
+      font-size: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+      z-index: 2000;
+      max-width: 360px;
+    }
+    .toast.toast-warn { border-color: var(--yellow); }
+    .toast.toast-err  { border-color: var(--cat-ifr); }
+
     /* RainViewer animation HUD */
     .rv-hud {
       background: var(--surface);
@@ -416,6 +434,9 @@ async function rvRebuild() {
   }
 
   if (rvSatelliteOn) {
+    if (!sat.length) {
+      showToast("Satellite imagery currently unavailable from RainViewer.", "warn");
+    }
     for (const frame of sat.slice(-RV_FRAME_COUNT)) {
       const url = `${manifest.host}${frame.path}/${RV_TILE_SIZE}/{z}/{x}/{y}/${RV_SATELLITE_OPTS}`;
       const layer = L.tileLayer(url, {
@@ -435,6 +456,14 @@ async function rvRebuild() {
   const visibleStack = rvFrames.length ? rvFrames : rvSatFrames;
   rvCurrentIdx = Math.max(0, visibleStack.length - 1);
   rvShowFrame(rvCurrentIdx);
+}
+
+function showToast(msg, kind = "", durationMs = 4000) {
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " toast-" + kind : "");
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), durationMs);
 }
 
 function rvShowFrame(idx) {
@@ -699,9 +728,22 @@ function showUserLocation(latlng, recenter) {
 map.on("locationfound", (e) => {
   showUserLocation(e.latlng, !userMovedMap);
 });
-map.on("locationerror", () => { /* silent fallback to CONUS view */ });
+map.on("locationerror", (e) => {
+  /* Surface why so the user knows it's not silently broken.
+     code 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT */
+  const code = e.code;
+  let msg = "Couldn't determine your location.";
+  if (code === 1) msg = "Location permission denied. Click ◎ in the topleft to retry.";
+  else if (code === 2) msg = "Your location is unavailable right now.";
+  else if (code === 3) msg = "Locating timed out. Click ◎ to try again.";
+  showToast(msg, "warn", 6000);
+});
 
-map.locate({ setView: false, maxZoom: LOCATE_ZOOM, enableHighAccuracy: false });
+if (!navigator.geolocation) {
+  showToast("Geolocation isn't supported by this browser.", "warn", 6000);
+} else {
+  map.locate({ setView: false, maxZoom: LOCATE_ZOOM, enableHighAccuracy: false, timeout: 10000 });
+}
 
 const LocateControl = L.Control.extend({
   options: { position: "topleft" },
