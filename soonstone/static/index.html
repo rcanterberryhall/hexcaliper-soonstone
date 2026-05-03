@@ -436,8 +436,26 @@ function fmtLeadFwd(h) {
   return `in ${Math.round(h)} h`;
 }
 
-function fmtTimeUTC(iso) {
-  return iso.slice(11, 16) + " UTC";
+function fmtTime(iso) {
+  // Local time first, UTC in parens. Local = browser timezone.
+  const d = new Date(iso);
+  const local = d.toLocaleTimeString([], {
+    hour: "numeric", minute: "2-digit", timeZoneName: "short"
+  });
+  const utc = iso.slice(11, 16) + " UTC";
+  return `${local} (${utc})`;
+}
+
+function fmtTimeRange(fromIso, toIso) {
+  // Local-local with one timezone label, then UTC range in parens.
+  const f = new Date(fromIso);
+  const t = new Date(toIso);
+  const opts = { hour: "numeric", minute: "2-digit" };
+  const fLocal = f.toLocaleTimeString([], opts);
+  const tLocal = t.toLocaleTimeString([], { ...opts, timeZoneName: "short" });
+  const fUtc = fromIso.slice(11, 16);
+  const tUtc = toIso.slice(11, 16);
+  return `${fLocal}–${tLocal} (${fUtc}–${tUtc} UTC)`;
 }
 
 function fmtCatBadge(cat) {
@@ -456,7 +474,7 @@ function nowBlock(now) {
   const cloudLine = clouds ? `<div>${clouds}</div>` : "";
   return `
     <div class="popup-now">
-      <div><strong>At ${fmtTimeUTC(now.observed_at)}</strong> &middot; ${now.metar_type === "SPECI" ? "Special observation" : "Observation"}</div>
+      <div><strong>At ${fmtTime(now.observed_at)}</strong> &middot; ${now.metar_type === "SPECI" ? "Special observation" : "Observation"}</div>
       <div>${fmtWind(now)}</div>
       <div>Visibility ${fmtVis(now.visibility_sm)} &middot; ${fmtCeiling(now.ceiling_ft)}</div>
       ${cloudLine}
@@ -472,7 +490,7 @@ function caveatBlock(cav) {
   const head = cav.probability_pct ? `${cav.probability_pct}% chance` : "Temporarily";
   const wx = fmtWeather(cav.weather);
   const clouds = fmtClouds(cav.cloud_layers);
-  const parts = [`<strong>${head}</strong> ${fmtTimeUTC(cav.group_from)}–${fmtTimeUTC(cav.group_to)}`];
+  const parts = [`<strong>${head}</strong> ${fmtTimeRange(cav.group_from, cav.group_to)}`];
   parts.push(`${fmtWind(cav)} &middot; visibility ${fmtVis(cav.visibility_sm)}`);
   if (clouds) parts.push(clouds);
   if (wx) parts.push(`Weather: ${wx}`);
@@ -489,7 +507,7 @@ function convergenceCell(c, observedCat) {
   return `
     <div class="${cls}">
       ${amendLabel}
-      <div class="cell-time">${fmtTimeUTC(c.issued_at)}</div>
+      <div class="cell-time">${fmtTime(c.issued_at)}</div>
       <div>${fmtLeadAgo(c.lead_hours)}</div>
       <div>${fmtWind(c)}</div>
       <div>vis ${fmtVis(c.visibility_sm)}</div>
@@ -508,7 +526,7 @@ function forwardCell(f) {
   return `
     <div class="${cls}">
       <div class="cell-time">${label}</div>
-      <div>${fmtTimeUTC(f.valid_at)} &middot; ${lead}</div>
+      <div>${fmtTime(f.valid_at)} &middot; ${lead}</div>
       <div>${fmtWind(f)}</div>
       <div>vis ${fmtVis(f.visibility_sm)}</div>
       <div>${fmtCeiling(f.ceiling_ft)}</div>
