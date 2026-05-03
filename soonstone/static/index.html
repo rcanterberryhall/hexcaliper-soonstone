@@ -294,7 +294,60 @@ const baseLayers = {
 };
 baseLayers["Dark"].addTo(map);
 
-L.control.layers(baseLayers, null, { position: "topright", collapsed: false }).addTo(map);
+// RainViewer overlay — live radar reflectivity. Default off, user toggles on.
+let rainviewerLayer = null;
+let rainviewerHost = null;
+let rainviewerPath = null;
+let rainviewerRefreshTimer = null;
+
+async function refreshRainviewerFrame() {
+  try {
+    const r = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+    const m = await r.json();
+    const past = m.radar && m.radar.past;
+    if (!past || !past.length) return;
+    const frame = past[past.length - 1];
+    rainviewerHost = m.host;
+    rainviewerPath = frame.path;
+    if (rainviewerLayer && map.hasLayer(rainviewerLayer)) {
+      const newUrl = `${rainviewerHost}${rainviewerPath}/256/{z}/{x}/{y}/2/1_1.png`;
+      rainviewerLayer.setUrl(newUrl);
+    }
+  } catch (_) { /* swallow; overlay stays at the prior frame */ }
+}
+
+const placeholderLayer = L.layerGroup();
+const overlays = { "Live radar (RainViewer)": placeholderLayer };
+
+map.on("overlayadd", async (e) => {
+  if (e.name !== "Live radar (RainViewer)") return;
+  if (!rainviewerHost) await refreshRainviewerFrame();
+  if (!rainviewerHost) return;
+  const url = `${rainviewerHost}${rainviewerPath}/256/{z}/{x}/{y}/2/1_1.png`;
+  rainviewerLayer = L.tileLayer(url, {
+    opacity: 0.6,
+    attribution: 'Radar &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
+    maxZoom: 12,
+  });
+  rainviewerLayer.addTo(map);
+  if (!rainviewerRefreshTimer) {
+    rainviewerRefreshTimer = setInterval(refreshRainviewerFrame, 10 * 60 * 1000);
+  }
+});
+
+map.on("overlayremove", (e) => {
+  if (e.name !== "Live radar (RainViewer)") return;
+  if (rainviewerLayer) {
+    map.removeLayer(rainviewerLayer);
+    rainviewerLayer = null;
+  }
+  if (rainviewerRefreshTimer) {
+    clearInterval(rainviewerRefreshTimer);
+    rainviewerRefreshTimer = null;
+  }
+});
+
+L.control.layers(baseLayers, overlays, { position: "topright", collapsed: false }).addTo(map);
 
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = function() {
