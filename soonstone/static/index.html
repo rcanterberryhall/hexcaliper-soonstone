@@ -156,6 +156,47 @@
     .toast.toast-warn { border-color: var(--yellow); }
     .toast.toast-err  { border-color: var(--cat-ifr); }
 
+    /* Slide-in station panel — fills the right edge below the header. */
+    .station-panel {
+      position: fixed;
+      top: 55px;       /* header is ~52 + 3 px stripe */
+      right: 0;
+      bottom: 0;
+      width: 420px;
+      max-width: 100vw;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      box-shadow: -4px 0 16px rgba(0, 0, 0, 0.7);
+      overflow-y: auto;
+      z-index: 999;
+      padding: 14px 18px 32px;
+      color: var(--text);
+      transform: translateX(100%);
+      transition: transform 0.22s ease-out;
+      font-family: var(--font);
+    }
+    .station-panel.open { transform: translateX(0); }
+    .panel-close {
+      position: sticky;
+      top: 0;
+      float: right;
+      margin: -6px -8px 0 0;
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid transparent;
+      font-size: 22px;
+      line-height: 1;
+      width: 32px;
+      height: 32px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .panel-close:hover { color: var(--text); border-color: var(--border); }
+    @media (max-width: 600px) {
+      .station-panel { width: 100vw; top: 0; padding-top: 50px; }
+      .panel-close   { position: fixed; top: 6px; right: 6px; }
+    }
+
     /* RainViewer animation HUD */
     .rv-hud {
       background: var(--surface);
@@ -201,18 +242,7 @@
       color: var(--text-muted); margin-bottom: 4px;
     }
 
-    /* Popup — dark surface with sky-tinted borders and amber AMD accent */
-    .leaflet-popup-content-wrapper {
-      border-radius: var(--radius);
-      background: var(--surface);
-      color: var(--text);
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.7);
-      border: 1px solid var(--border);
-    }
-    .leaflet-popup-tip { background: var(--surface); }
-    .leaflet-popup-content { margin: 10px 12px; min-width: 340px; max-width: 560px; }
-    .leaflet-popup-close-button { color: var(--text-muted) !important; }
-    .leaflet-popup-close-button:hover { color: var(--text) !important; }
+    /* Popup styles repurposed for the slide-in side panel content. */
 
     .popup-station {
       font-weight: 700;
@@ -339,6 +369,11 @@
 </header>
 
 <div id="map"></div>
+
+<aside id="station-panel" class="station-panel" hidden aria-label="Station details">
+  <button id="station-panel-close" class="panel-close" title="Close">&times;</button>
+  <div id="station-panel-body"></div>
+</aside>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -1309,15 +1344,40 @@ function popupHtml(snap) {
   `;
 }
 
-async function loadSnapshot(stationId, marker) {
-  marker.bindPopup(`<div class="empty">loading ${stationId}…</div>`).openPopup();
+const stationPanel     = document.getElementById("station-panel");
+const stationPanelBody = document.getElementById("station-panel-body");
+
+function openStationPanel() {
+  stationPanel.hidden = false;
+  /* Force reflow so the transform transition fires from translateX(100%) */
+  stationPanel.getBoundingClientRect();
+  stationPanel.classList.add("open");
+}
+
+function closeStationPanel() {
+  stationPanel.classList.remove("open");
+  setTimeout(() => { stationPanel.hidden = true; }, 240);
+}
+
+document.getElementById("station-panel-close").addEventListener("click", closeStationPanel);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && stationPanel.classList.contains("open")) closeStationPanel();
+});
+/* Click on empty map (not a marker) also closes the panel. */
+map.on("click", (e) => {
+  if (stationPanel.classList.contains("open")) closeStationPanel();
+});
+
+async function loadSnapshot(stationId) {
+  stationPanelBody.innerHTML = `<div class="empty">loading ${stationId}…</div>`;
+  openStationPanel();
   try {
     const resp = await fetch(`/api/stations/${stationId}/snapshot`);
     if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
     const snap = await resp.json();
-    marker.setPopupContent(popupHtml(snap));
-  } catch (e) {
-    marker.setPopupContent(`<div class="err">error: ${e.message}</div>`);
+    stationPanelBody.innerHTML = popupHtml(snap);
+  } catch (err) {
+    stationPanelBody.innerHTML = `<div class="err">error: ${err.message}</div>`;
   }
 }
 
@@ -1335,7 +1395,10 @@ async function init() {
       weight: 0.8,
       fillOpacity: 0.95,
     }).addTo(map);
-    marker.on("click", () => loadSnapshot(feat.properties.id, marker));
+    marker.on("click", (e) => {
+      L.DomEvent.stopPropagation(e);  /* don't trigger the map-click close */
+      loadSnapshot(feat.properties.id);
+    });
     marker.bindTooltip(`${feat.properties.id}${cat ? " (" + cat + ")" : ""}`);
   }
 }
