@@ -326,6 +326,71 @@
       .panel-close   { position: fixed; top: 6px; right: 6px; }
     }
 
+    /* Drilldown panel — slides in 420 px to the left of the station panel
+       when the user clicks a verify-row. Stacks on desktop, replaces on
+       mobile. */
+    .detail-panel {
+      position: fixed;
+      top: 55px;
+      right: 420px;
+      bottom: 0;
+      width: 420px;
+      max-width: 100vw;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      box-shadow: -4px 0 16px rgba(0, 0, 0, 0.7);
+      overflow-y: auto;
+      z-index: 998;     /* under station-panel by 1 so close-X clicks land right */
+      padding: 14px 18px 32px;
+      color: var(--text);
+      transform: translateX(100%);
+      transition: transform 0.22s ease-out;
+      font-family: var(--font);
+    }
+    .detail-panel.open { transform: translateX(0); }
+    body.detail-open .leaflet-top.leaflet-right { right: 852px; }  /* 420 + 420 + 12 */
+    @media (max-width: 600px) {
+      .detail-panel { right: 0; top: 0; width: 100vw; padding-top: 50px; z-index: 1001; }
+    }
+
+    .delta-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+    .delta-table th {
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .delta-table td {
+      padding: 6px 6px;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border);
+    }
+    .delta-table td.label {
+      color: var(--text-muted);
+      font-weight: 600;
+      white-space: nowrap;
+      width: 1%;
+    }
+    .delta-table tr.mismatch td.label { color: var(--yellow); }
+    .delta-table tr.mismatch.heavy td.label { color: var(--cat-ifr); }
+    .delta-table tr.mismatch td:not(.label) { color: var(--text); }
+    .delta-table .arrow { color: var(--text-muted); margin: 0 4px; }
+    .delta-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      line-height: 1.5;
+    }
+
     /* RainViewer animation HUD */
     .rv-hud {
       background: var(--surface);
@@ -509,6 +574,11 @@
 <aside id="station-panel" class="station-panel" hidden aria-label="Station details">
   <button id="station-panel-close" class="panel-close" title="Close">&times;</button>
   <div id="station-panel-body"></div>
+</aside>
+
+<aside id="detail-panel" class="detail-panel" hidden aria-label="Hour detail">
+  <button id="detail-panel-close" class="panel-close" title="Close">&times;</button>
+  <div id="detail-panel-body"></div>
 </aside>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -1649,7 +1719,10 @@ function verifyLegend() {
     </div>`;
 }
 
-function verifyRow(entry) {
+/* Cache the entries currently rendered so a click can look one up by index. */
+let verifyEntries = [];
+
+function verifyRow(entry, idx) {
   const anchor = entry.anchor_hour;
   const pred = entry.predicted || {};
   const act = entry.actual;
@@ -1674,7 +1747,7 @@ function verifyRow(entry) {
   }
 
   return `
-    <div class="verify-row${level ? " div-" + level : ""}">
+    <div class="verify-row${level ? " div-" + level : ""}" data-verify-idx="${idx}" role="button" tabindex="0" style="cursor:pointer">
       <span class="v-time">${fmtHourLabel(anchor)}</span>
       <div class="v-cell"><span class="v-icon">${predIcon}</span><span>${predCond}</span></div>
       <div class="v-cell">${actContent}</div>
@@ -1682,16 +1755,180 @@ function verifyRow(entry) {
     </div>`;
 }
 
+/* ─── Detail (drilldown) panel ──────────────────────────────────────── */
+
+const detailPanel     = document.getElementById("detail-panel");
+const detailPanelBody = document.getElementById("detail-panel-body");
+
+function openDetailPanel() {
+  detailPanel.hidden = false;
+  detailPanel.getBoundingClientRect();
+  detailPanel.classList.add("open");
+  document.body.classList.add("detail-open");
+}
+
+function closeDetailPanel() {
+  detailPanel.classList.remove("open");
+  document.body.classList.remove("detail-open");
+  setTimeout(() => { detailPanel.hidden = true; }, 240);
+}
+
+document.getElementById("detail-panel-close").addEventListener("click", closeDetailPanel);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && detailPanel.classList.contains("open")) {
+    closeDetailPanel();
+    e.stopPropagation();   /* don't also close the station panel */
+  }
+});
+
+function _fmtFlightCat(cat) {
+  if (!cat) return "—";
+  const desc = (FLIGHT_CAT_LABEL[cat] || {}).desc;
+  return `<span class="cell-cat" style="background:${CAT_BG(cat)}">${cat}</span>${desc ? ` <span style="color:var(--text-muted);font-size:10px">${desc}</span>` : ""}`;
+}
+
+function _windDeltaTag(pred, act) {
+  if (pred.wind_speed_kt == null || act.wind_speed_kt == null) return "";
+  const d = act.wind_speed_kt - pred.wind_speed_kt;
+  if (Math.abs(d) < 5) return "";
+  return ` <span class="arrow">Δ ${d > 0 ? "+" : ""}${Math.round(d)} kt</span>`;
+}
+
+function _visDeltaTag(pred, act) {
+  if (pred.visibility_sm == null || act.visibility_sm == null) return "";
+  const d = act.visibility_sm - pred.visibility_sm;
+  if (Math.abs(d) < 2) return "";
+  return ` <span class="arrow">Δ ${d > 0 ? "+" : ""}${d.toFixed(d % 1 === 0 ? 0 : 1)} mi</span>`;
+}
+
+function _rowClass(level) {
+  if (level === 0) return "";
+  if (level >= 2) return "mismatch heavy";
+  return "mismatch";
+}
+
+function _flightCatLevel(p, a) {
+  if (!p.flight_category || !a.flight_category) return 0;
+  const ai = FLIGHT_CAT_ORDER[p.flight_category], bi = FLIGHT_CAT_ORDER[a.flight_category];
+  if (ai == null || bi == null) return 0;
+  const d = Math.abs(ai - bi);
+  return d >= 2 ? 2 : (d === 1 ? 1 : 0);
+}
+
+function _windLevel(p, a) {
+  if (p.wind_speed_kt == null || a.wind_speed_kt == null) return 0;
+  const d = Math.abs(p.wind_speed_kt - a.wind_speed_kt);
+  return d >= 15 ? 2 : (d >= 8 ? 1 : 0);
+}
+
+function _visLevel(p, a) {
+  if (p.visibility_sm == null || a.visibility_sm == null) return 0;
+  const d = Math.abs(p.visibility_sm - a.visibility_sm);
+  return d >= 5 ? 2 : (d >= 2 ? 1 : 0);
+}
+
+function _cloudLevel(p, a) {
+  const pb = _maxCoverBucket(p.cloud_layers);
+  const ab = _maxCoverBucket(a.cloud_layers);
+  if (pb == null || ab == null) return 0;
+  const d = Math.abs(pb - ab);
+  return d >= 2 ? 2 : (d === 1 ? 1 : 0);
+}
+
+function _ceilingLevel(p, a) {
+  if (p.ceiling_ft == null && a.ceiling_ft == null) return 0;
+  if (p.ceiling_ft == null || a.ceiling_ft == null) return 1;
+  const d = Math.abs(p.ceiling_ft - a.ceiling_ft);
+  return d >= 1500 ? 2 : (d >= 500 ? 1 : 0);
+}
+
+function detailHtml(entry) {
+  const pred = entry.predicted || {};
+  const act = entry.actual;
+  const anchor = entry.anchor_hour;
+  const noActual = !act;
+
+  const meta = [
+    `Forecast made ${entry.lead_hours} h before`,
+    entry.amendment_type ? `<strong style="color:var(--yellow)">${entry.amendment_type}</strong>` : "routine TAF",
+    `TAF issued ${fmtTime(entry.issued_at)}`,
+  ].join(" · ");
+
+  function row(label, predHtml, actHtml, level) {
+    const cls = noActual ? "" : _rowClass(level);
+    return `<tr class="${cls}">
+      <td class="label">${label}</td>
+      <td>${predHtml}</td>
+      <td>${noActual ? "<em style='color:var(--text-muted)'>no obs</em>" : actHtml}</td>
+    </tr>`;
+  }
+
+  return `
+    <div class="popup-station">${fmtHourLabel(anchor)} &middot; forecast vs actual</div>
+    <div class="delta-meta">${meta}</div>
+    <table class="delta-table">
+      <thead><tr><th></th><th>Forecast</th><th>Actual</th></tr></thead>
+      <tbody>
+        ${row("Flight category",
+              _fmtFlightCat(pred.flight_category),
+              act ? _fmtFlightCat(act.flight_category) : "",
+              act ? _flightCatLevel(pred, act) : 0)}
+        ${row("Wind",
+              fmtWind(pred),
+              act ? fmtWind(act) + _windDeltaTag(pred, act) : "",
+              act ? _windLevel(pred, act) : 0)}
+        ${row("Visibility",
+              fmtVis(pred.visibility_sm),
+              act ? fmtVis(act.visibility_sm) + _visDeltaTag(pred, act) : "",
+              act ? _visLevel(pred, act) : 0)}
+        ${row("Cloud cover",
+              fmtClouds(pred.cloud_layers) || "—",
+              act ? (fmtClouds(act.cloud_layers) || "—") : "",
+              act ? _cloudLevel(pred, act) : 0)}
+        ${row("Ceiling",
+              fmtCeiling(pred.ceiling_ft),
+              act ? fmtCeiling(act.ceiling_ft) : "",
+              act ? _ceilingLevel(pred, act) : 0)}
+        ${row("Weather",
+              fmtWeather(pred.weather) || "—",
+              act ? (fmtWeather(act.weather) || "—") : "",
+              0)}
+        ${row("Temperature",
+              "<em style='color:var(--text-muted)'>not forecast</em>",
+              act && act.temp_c != null
+                ? `${celsiusToF(act.temp_c)}°F <span class="arrow">(${act.temp_c.toFixed(1)} °C)</span>`
+                : "",
+              0)}
+      </tbody>
+    </table>`;
+}
+
+/* Click handler on the station panel body — picks up clicks on .verify-row
+   even though the rows are HTML strings that get re-rendered on every
+   snapshot fetch. */
+stationPanelBody.addEventListener("click", (e) => {
+  const row = e.target.closest(".verify-row");
+  if (!row) return;
+  const idx = Number(row.dataset.verifyIdx);
+  if (!Number.isFinite(idx)) return;
+  const entry = verifyEntries[idx];
+  if (!entry) return;
+  detailPanelBody.innerHTML = detailHtml(entry);
+  openDetailPanel();
+});
+
 function consumerPanelHtml(snap) {
   const name = snap.station.name ? `<span class="station-name">${snap.station.name}</span>` : "";
-  const verify = (snap.historic_predictions || []).slice().reverse(); /* newest first */
+  /* newest first; cache for the click-to-drilldown handler */
+  verifyEntries = (snap.historic_predictions || []).slice().reverse();
+  const verify = verifyEntries;
   const hourly = snap.hourly || [];
   const nws = (snap.forward || []).filter((f) => f.forecast_source === "NWS");
 
   const verifyBlock = verify.length
     ? `<div class="verify-header"><span></span><span>Forecast</span><span>Actual</span></div>
        ${verifyLegend()}
-       <div class="friendly-section">${verify.map(verifyRow).join("")}</div>`
+       <div class="friendly-section">${verify.map((e, i) => verifyRow(e, i)).join("")}</div>`
     : `<div class="empty">no historical TAF coverage in the last 24 h</div>`;
 
   const hourlyBlock = hourly.length
@@ -1780,6 +2017,7 @@ function closeStationPanel() {
   stationPanel.classList.remove("open");
   document.body.classList.remove("panel-open");
   setTimeout(() => { stationPanel.hidden = true; }, 240);
+  if (detailPanel.classList.contains("open")) closeDetailPanel();
 }
 
 document.getElementById("station-panel-close").addEventListener("click", closeStationPanel);
