@@ -6,13 +6,17 @@ blueprint here.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from flask import Flask
 
 from soonstone.api.health import bp as health_bp
+from soonstone.api.index import bp as index_bp
 from soonstone.api.snapshot import bp as snapshot_bp
 from soonstone.api.stations import bp as stations_bp
+
+_STATIC_DIR = Path(__file__).parent / "static"
 from soonstone.config import Config
 from soonstone.db import create_engine_with_pragmas
 from soonstone.health import JobHealth
@@ -38,5 +42,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.register_blueprint(stations_bp)
     app.register_blueprint(snapshot_bp)
     app.register_blueprint(health_bp)
+    app.register_blueprint(index_bp)
 
     return app
