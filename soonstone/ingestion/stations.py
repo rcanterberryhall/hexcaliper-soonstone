@@ -8,6 +8,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from soonstone.config import Config
+from soonstone.ingestion._bbox import quartered_bboxes
 from soonstone.ingestion.awc_client import AwcClient
 from soonstone.ingestion.results import StationsResult
 from soonstone.models import Station
@@ -34,31 +35,12 @@ def _project(awc_row: dict, now: str) -> dict:
     }
 
 
-def _quartered_bboxes(bbox: str) -> list[str]:
-    """Split a 'south,west,north,east' bbox into 4 sub-bboxes (SW/SE/NW/NE).
-
-    AWC's stationinfo endpoint caps each response at 400 rows. CONUS exceeds
-    that, so we fetch in quadrants and dedup by icaoId. For small bboxes
-    (Florida) the call count goes from 1 to 4 with negligible cost since
-    refresh_stations runs weekly.
-    """
-    s, w, n, e = [float(x) for x in bbox.split(",")]
-    mid_lat = (s + n) / 2
-    mid_lon = (w + e) / 2
-    return [
-        f"{s},{w},{mid_lat},{mid_lon}",
-        f"{s},{mid_lon},{mid_lat},{e}",
-        f"{mid_lat},{w},{n},{mid_lon}",
-        f"{mid_lat},{mid_lon},{n},{e}",
-    ]
-
-
 def refresh_stations(
     session: Session, awc_client: AwcClient, config: Config
 ) -> StationsResult:
     rows: list[dict] = []
     seen: set[str] = set()
-    for sub in _quartered_bboxes(config.bbox_query):
+    for sub in quartered_bboxes(config.bbox_query):
         for raw in awc_client.fetch_stations(bbox=sub):
             icao = raw.get("icaoId")
             if not icao or icao in seen:

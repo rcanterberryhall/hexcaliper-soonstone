@@ -556,11 +556,12 @@ setInterval(() => {
 /* NOAA GOES GeoColor via NASA GIBS. Time-parametric URL — recompute the
    most recent 10-min boundary on enable and on each 10-min refresh tick. */
 function _gibsTimestamp() {
-  const now = new Date();
-  now.setSeconds(0, 0);
-  now.setMinutes(now.getMinutes() - (now.getMinutes() % 10));
-  // GIBS expects 'YYYY-MM-DDTHH:MM:SSZ'
-  return now.toISOString().replace(/\.\d+Z$/, "Z");
+  /* GIBS publishes GOES products with ~60 min lag. Asking for the current
+     10-min slot returns 404; -60 min reliably has data. */
+  const t = new Date(Date.now() - 60 * 60 * 1000);
+  t.setSeconds(0, 0);
+  t.setMinutes(t.getMinutes() - (t.getMinutes() % 10));
+  return t.toISOString().replace(/\.\d+Z$/, "Z");
 }
 function _gibsUrl() {
   return `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GOES-East_ABI_GeoColor/default/${_gibsTimestamp()}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`;
@@ -698,13 +699,8 @@ map.on("overlayadd", async (e) => {
     }
     return;
   }
-  if (e.name === "Live radar (RainViewer)") {
+  if (e.name === "Live radar (RainViewer, animated)") {
     rvRadarOn = true;
-    await rvEnsureStarted();
-    return;
-  }
-  if (e.name === "Cloud cover (RainViewer satellite)") {
-    rvSatelliteOn = true;
     await rvEnsureStarted();
     return;
   }
@@ -718,15 +714,8 @@ map.on("overlayremove", async (e) => {
     }
     return;
   }
-  if (e.name === "Live radar (RainViewer)") {
+  if (e.name === "Live radar (RainViewer, animated)") {
     rvRadarOn = false;
-    if (rvSatelliteOn) await rvRebuild();  /* re-render without radar */
-    rvMaybeStop();
-    return;
-  }
-  if (e.name === "Cloud cover (RainViewer satellite)") {
-    rvSatelliteOn = false;
-    if (rvRadarOn) await rvRebuild();
     rvMaybeStop();
     return;
   }

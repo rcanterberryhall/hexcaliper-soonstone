@@ -7,6 +7,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from soonstone.config import Config
+from soonstone.ingestion._bbox import quartered_bboxes
 from soonstone.ingestion.awc_client import AwcClient
 from soonstone.ingestion.results import MetarsResult
 from soonstone.models import Observation, Station
@@ -18,7 +19,21 @@ log = logging.getLogger(__name__)
 def ingest_metars(
     session: Session, awc_client: AwcClient, config: Config
 ) -> MetarsResult:
-    rows = awc_client.fetch_metars(bbox=config.bbox_query)
+    # AWC METAR endpoint caps at 400 rows; quarter the bbox like we do for
+    # stationinfo. Dedup by (icaoId, rawOb) since the same station can
+    # appear in two adjacent quadrants on the boundary.
+    rows: list[dict] = []
+    seen: set[tuple] = set()
+    for sub in quartered_bboxes(config.bbox_query):
+        for row in awc_client.fetch_metars(bbox=sub):
+            icao = row.get("icaoId")
+            if not icao:
+                continue
+            key = (icao, row.get("rawOb"))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
     inserted = 0
     skipped = 0
     failed = 0

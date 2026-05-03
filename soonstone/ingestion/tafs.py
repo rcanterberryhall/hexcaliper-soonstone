@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from soonstone.config import Config
+from soonstone.ingestion._bbox import quartered_bboxes
 from soonstone.ingestion.awc_client import AwcClient
 from soonstone.ingestion.results import TafsResult
 from soonstone.models import Station, Taf, TafGroup
@@ -39,7 +40,19 @@ def _is_duplicate(session: Session, parsed: dict) -> bool:
 def ingest_tafs(
     session: Session, awc_client: AwcClient, config: Config
 ) -> TafsResult:
-    rows = awc_client.fetch_tafs(bbox=config.bbox_query)
+    # AWC TAF endpoint caps at 400 rows; quarter and dedup by (icaoId, rawTAF).
+    rows: list[dict] = []
+    seen: set[tuple] = set()
+    for sub in quartered_bboxes(config.bbox_query):
+        for row in awc_client.fetch_tafs(bbox=sub):
+            icao = row.get("icaoId")
+            if not icao:
+                continue
+            key = (icao, row.get("rawTAF"))
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
     inserted = 0
     skipped = 0
     failed = 0
