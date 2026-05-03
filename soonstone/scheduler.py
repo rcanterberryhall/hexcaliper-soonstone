@@ -149,6 +149,18 @@ def run_once(job_name: str, app: Flask) -> None:
         "fetch_radar_images": fetch_radar_images,
         "ingest_airsigmets": ingest_airsigmets,
     }
+    if job_name not in fn_map:
+        raise ValueError(f"unknown job: {job_name}")
+    runner = _make_runner(app, fn_map[job_name], job_name)
+    health = app.extensions.get("soonstone_health")
+    try:
+        runner()
+        if health:
+            health.record_success(job_name)
+    except Exception as exc:
+        if health:
+            health.record_error(job_name, exc)
+        raise
 
 
 # Order + offsets chosen so the data the user cares about most appears first
@@ -188,15 +200,3 @@ def first_scan(scheduler: BackgroundScheduler) -> None:
                 "first_scan_modify_failed",
                 extra={"job": job_id, "error": str(exc)},
             )
-    if job_name not in fn_map:
-        raise ValueError(f"unknown job: {job_name}")
-    runner = _make_runner(app, fn_map[job_name], job_name)
-    health = app.extensions.get("soonstone_health")
-    try:
-        runner()
-        if health:
-            health.record_success(job_name)
-    except Exception as exc:
-        if health:
-            health.record_error(job_name, exc)
-        raise
