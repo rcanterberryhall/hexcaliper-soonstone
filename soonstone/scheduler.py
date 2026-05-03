@@ -21,11 +21,21 @@ from flask import Flask
 
 from soonstone.db import make_session_factory
 from soonstone.ingestion.metars import ingest_metars
+from soonstone.ingestion.nws import ingest_nws_forecasts
+from soonstone.ingestion.nws_client import NwsClient
 from soonstone.ingestion.prune import prune_old
 from soonstone.ingestion.stations import refresh_stations
 from soonstone.ingestion.tafs import ingest_tafs
 
 log = logging.getLogger(__name__)
+
+
+def _get_nws_client(app: Flask) -> NwsClient:
+    nws = app.extensions.get("soonstone_nws_client")
+    if nws is None:
+        nws = NwsClient(config=app.extensions["soonstone_config"])
+        app.extensions["soonstone_nws_client"] = nws
+    return nws
 
 
 def _make_runner(app: Flask, fn, name: str):
@@ -38,6 +48,8 @@ def _make_runner(app: Flask, fn, name: str):
             try:
                 if fn is prune_old:
                     result = fn(session)
+                elif fn is ingest_nws_forecasts:
+                    result = fn(session, _get_nws_client(app), config)
                 else:
                     result = fn(session, awc_client, config)
                 log.info("ingestion_done", extra=result.as_log_extra())
@@ -86,6 +98,12 @@ def build_scheduler(app: Flask) -> BackgroundScheduler:
         id="prune_old",
         replace_existing=True,
     )
+    scheduler.add_job(
+        _make_runner(app, ingest_nws_forecasts, "ingest_nws_forecasts"),
+        trigger=CronTrigger(minute=10),
+        id="ingest_nws_forecasts",
+        replace_existing=True,
+    )
     return scheduler
 
 
@@ -96,6 +114,7 @@ def run_once(job_name: str, app: Flask) -> None:
         "ingest_metars": ingest_metars,
         "ingest_tafs": ingest_tafs,
         "prune_old": prune_old,
+        "ingest_nws_forecasts": ingest_nws_forecasts,
     }
     if job_name not in fn_map:
         raise ValueError(f"unknown job: {job_name}")

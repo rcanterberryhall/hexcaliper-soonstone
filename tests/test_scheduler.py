@@ -7,7 +7,7 @@ from soonstone.app import create_app
 from soonstone.scheduler import build_scheduler
 
 
-def test_scheduler_registers_four_jobs(tmp_path, monkeypatch):
+def test_scheduler_registers_all_jobs(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'sched.db'}")
     app = create_app()
     scheduler = build_scheduler(app)
@@ -17,6 +17,7 @@ def test_scheduler_registers_four_jobs(tmp_path, monkeypatch):
         "ingest_metars",
         "ingest_tafs",
         "prune_old",
+        "ingest_nws_forecasts",
     }
 
 
