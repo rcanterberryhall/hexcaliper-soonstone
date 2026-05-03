@@ -40,6 +40,7 @@ class Station(Base):
         Text, nullable=False, server_default=ISO8601_UTC_NOW
     )
     last_seen: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nws_forecast_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Observation(Base):
@@ -131,3 +132,32 @@ class TafGroup(Base):
     flight_category: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     taf: Mapped[Taf] = relationship(back_populates="groups")
+
+
+class NwsForecast(Base):
+    __tablename__ = "nws_forecasts"
+    __table_args__ = (
+        UniqueConstraint(
+            "station_id", "valid_from", "valid_to",
+            name="uq_nws_forecasts_period",
+        ),
+        Index("idx_nws_station_valid", "station_id", "valid_from"),
+    )
+
+    nws_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    station_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("stations.station_id"), nullable=False
+    )
+    period_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valid_from: Mapped[str] = mapped_column(Text, nullable=False)
+    valid_to: Mapped[str] = mapped_column(Text, nullable=False)
+    temperature_f: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wind_dir: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wind_speed: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pop_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    short_forecast: Mapped[str | None] = mapped_column(Text, nullable=True)
+    detailed_forecast: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ingested_at: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=ISO8601_UTC_NOW
+    )
