@@ -119,6 +119,33 @@
     .leaflet-control-layers-base label { color: var(--text); }
     .leaflet-control-layers-separator { border-top-color: var(--border) !important; }
 
+    /* RainViewer animation HUD */
+    .rv-hud {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px 10px;
+      color: var(--text);
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      font-family: var(--font);
+    }
+    .rv-hud button {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .rv-hud button:hover { background: var(--surface-3); border-color: var(--blue); }
+    .rv-hud #rv-time { font-variant-numeric: tabular-nums; }
+
     /* Legend — branded card */
     .legend {
       background: var(--surface);
@@ -283,68 +310,144 @@ const baseLayers = {
     "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }
   ),
-  "VFR Sectional": L.tileLayer(
-    "https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}",
-    {
-      attribution: 'VFR charts &copy; FAA',
-      maxZoom: 18,
-      maxNativeZoom: 11,
-    }
-  ),
 };
 baseLayers["Dark"].addTo(map);
 
-// RainViewer overlay — live radar reflectivity. Default off, user toggles on.
-let rainviewerLayer = null;
-let rainviewerHost = null;
-let rainviewerPath = null;
-let rainviewerRefreshTimer = null;
+// FAA VFR sectional tiles only exist at zoom >= 8 (no continental composite,
+// only chart-scale segments). Modeled as an overlay on top of the dark base
+// so zooming out doesn't blank the map.
+const vfrLayer = L.tileLayer(
+  "https://tiles.arcgis.com/tiles/ssFJjBXIUyZDrSYZ/arcgis/rest/services/VFR_Sectional/MapServer/tile/{z}/{y}/{x}",
+  {
+    attribution: 'VFR charts &copy; FAA',
+    minZoom: 8,
+    maxZoom: 18,
+    maxNativeZoom: 11,
+    opacity: 0.85,
+  }
+);
 
-async function refreshRainviewerFrame() {
+/* RainViewer animated overlay — preload last hour of frames and cycle.
+
+   Default off; user toggles via the layer control. When enabled, fetches
+   RainViewer's manifest, takes the last 12 past frames (~60 min @ 5-min
+   spacing), preloads each as its own L.tileLayer with opacity 0, then
+   cycles which one is at opacity 0.6 every 700 ms. A small HUD at the
+   bottom-left shows the current frame's timestamp and a play/pause.
+   The manifest is re-fetched every 5 min and the frame stack rebuilt. */
+
+const RV_FRAME_COUNT     = 12;
+const RV_FRAME_INTERVAL  = 700;
+const RV_REFRESH_INTERVAL = 5 * 60 * 1000;
+
+let rvFrames = [];
+let rvCurrentIdx = 0;
+let rvAnimTimer = null;
+let rvRefreshTimer = null;
+let rvPaused = false;
+let rvHud = null;
+
+async function rvRebuild() {
+  let manifest;
   try {
     const r = await fetch("https://api.rainviewer.com/public/weather-maps.json");
-    const m = await r.json();
-    const past = m.radar && m.radar.past;
-    if (!past || !past.length) return;
-    const frame = past[past.length - 1];
-    rainviewerHost = m.host;
-    rainviewerPath = frame.path;
-    if (rainviewerLayer && map.hasLayer(rainviewerLayer)) {
-      const newUrl = `${rainviewerHost}${rainviewerPath}/256/{z}/{x}/{y}/2/1_1.png`;
-      rainviewerLayer.setUrl(newUrl);
-    }
-  } catch (_) { /* swallow; overlay stays at the prior frame */ }
+    manifest = await r.json();
+  } catch (_) { return; }
+  const past = (manifest.radar && manifest.radar.past) || [];
+  if (!past.length) return;
+  const useFrames = past.slice(-RV_FRAME_COUNT);
+
+  // Tear down any existing layers first.
+  for (const layer of rvFrames) {
+    if (map.hasLayer(layer)) map.removeLayer(layer);
+  }
+  rvFrames = [];
+
+  for (const frame of useFrames) {
+    const url = `${manifest.host}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+    const layer = L.tileLayer(url, {
+      opacity: 0,
+      attribution: 'Radar &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
+      maxZoom: 18,
+      maxNativeZoom: 10,
+    });
+    layer._rvTimestamp = frame.time; /* unix epoch sec */
+    layer.addTo(map);
+    rvFrames.push(layer);
+  }
+  rvCurrentIdx = rvFrames.length - 1;
+  rvShowFrame(rvCurrentIdx);
 }
 
+function rvShowFrame(idx) {
+  for (let i = 0; i < rvFrames.length; i++) {
+    rvFrames[i].setOpacity(i === idx ? 0.6 : 0);
+  }
+  if (rvHud) rvHud._update(rvFrames[idx]._rvTimestamp);
+}
+
+function rvTick() {
+  if (rvPaused || !rvFrames.length) return;
+  rvCurrentIdx = (rvCurrentIdx + 1) % rvFrames.length;
+  rvShowFrame(rvCurrentIdx);
+}
+
+const RvHudControl = L.Control.extend({
+  options: { position: "bottomleft" },
+  onAdd: function () {
+    const div = L.DomUtil.create("div", "rv-hud");
+    div.innerHTML = `<button id="rv-toggle" title="play/pause">&#9208;</button><span id="rv-time">…</span>`;
+    L.DomEvent.disableClickPropagation(div);
+    div.querySelector("#rv-toggle").addEventListener("click", () => {
+      rvPaused = !rvPaused;
+      div.querySelector("#rv-toggle").innerHTML = rvPaused ? "&#9654;" : "&#9208;";
+    });
+    return div;
+  },
+  _update: function (epochSec) {
+    const dt = new Date(epochSec * 1000);
+    const local = dt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const utc =
+      String(dt.getUTCHours()).padStart(2, "0") + ":" +
+      String(dt.getUTCMinutes()).padStart(2, "0");
+    const span = document.getElementById("rv-time");
+    if (span) span.textContent = `${local} (${utc} UTC)`;
+  },
+});
+
 const placeholderLayer = L.layerGroup();
-const overlays = { "Live radar (RainViewer)": placeholderLayer };
+const overlays = {
+  "VFR Sectional (zoom in past 8)": vfrLayer,
+  "Live radar (RainViewer)": placeholderLayer,
+};
 
 map.on("overlayadd", async (e) => {
   if (e.name !== "Live radar (RainViewer)") return;
-  if (!rainviewerHost) await refreshRainviewerFrame();
-  if (!rainviewerHost) return;
-  const url = `${rainviewerHost}${rainviewerPath}/256/{z}/{x}/{y}/2/1_1.png`;
-  rainviewerLayer = L.tileLayer(url, {
-    opacity: 0.6,
-    attribution: 'Radar &copy; <a href="https://www.rainviewer.com/">RainViewer</a>',
-    maxZoom: 18,
-    maxNativeZoom: 10,
-  });
-  rainviewerLayer.addTo(map);
-  if (!rainviewerRefreshTimer) {
-    rainviewerRefreshTimer = setInterval(refreshRainviewerFrame, 10 * 60 * 1000);
-  }
+  rvHud = new RvHudControl();
+  rvHud.addTo(map);
+  rvPaused = false;
+  await rvRebuild();
+  if (!rvAnimTimer) rvAnimTimer = setInterval(rvTick, RV_FRAME_INTERVAL);
+  if (!rvRefreshTimer) rvRefreshTimer = setInterval(rvRebuild, RV_REFRESH_INTERVAL);
 });
 
 map.on("overlayremove", (e) => {
   if (e.name !== "Live radar (RainViewer)") return;
-  if (rainviewerLayer) {
-    map.removeLayer(rainviewerLayer);
-    rainviewerLayer = null;
+  for (const layer of rvFrames) {
+    if (map.hasLayer(layer)) map.removeLayer(layer);
   }
-  if (rainviewerRefreshTimer) {
-    clearInterval(rainviewerRefreshTimer);
-    rainviewerRefreshTimer = null;
+  rvFrames = [];
+  if (rvHud) {
+    map.removeControl(rvHud);
+    rvHud = null;
+  }
+  if (rvAnimTimer) {
+    clearInterval(rvAnimTimer);
+    rvAnimTimer = null;
+  }
+  if (rvRefreshTimer) {
+    clearInterval(rvRefreshTimer);
+    rvRefreshTimer = null;
   }
 });
 
