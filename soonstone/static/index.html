@@ -85,6 +85,32 @@
       width: 100vw; height: 100vh;
     }
 
+    /* Push Leaflet's top-left zoom control below the fixed header so it
+       doesn't get hidden under the title bar. Header is ~52px tall plus
+       the 3px amber stripe = ~55px; round up. */
+    .leaflet-top.leaflet-left { top: 64px; }
+
+    /* Match the Leaflet zoom control to the dark theme. */
+    .leaflet-bar {
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5) !important;
+      border: 1px solid var(--border) !important;
+    }
+    .leaflet-bar a {
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border-bottom: 1px solid var(--border) !important;
+    }
+    .leaflet-bar a:hover {
+      background: var(--surface-2) !important;
+    }
+    .leaflet-control-attribution {
+      background: rgba(20, 34, 53, 0.85) !important;
+      color: var(--text-muted) !important;
+    }
+    .leaflet-control-attribution a {
+      color: var(--blue) !important;
+    }
+
     /* Legend — branded card */
     .legend {
       background: var(--surface);
@@ -306,7 +332,7 @@ function caveatBlock(cav) {
 function convergenceCell(c, observedCat) {
   const diverged = observedCat && c.flight_category && c.flight_category !== observedCat;
   const cls = `cell ${c.amendment_type ? "amend" : ""} ${diverged ? "diverged" : ""}`.trim();
-  const tag = c.amendment_type ? `<span style="font-weight:700;color:#92400e">${c.amendment_type}</span> ` : "";
+  const tag = c.amendment_type ? `<span style="font-weight:700;color:#fbbf24">${c.amendment_type}</span> ` : "";
   return `
     <div class="${cls}">
       <div class="cell-time">${tag}${isoToHHMM(c.issued_at)}</div>
