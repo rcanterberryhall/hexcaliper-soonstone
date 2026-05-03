@@ -53,7 +53,7 @@ class Observation(Base):
         Text, ForeignKey("stations.station_id"), nullable=False
     )
     observed_at: Mapped[str] = mapped_column(Text, nullable=False)
-    raw_metar: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_metar: Mapped[str | None] = mapped_column(Text, nullable=True)
     metar_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     temp_c: Mapped[float | None] = mapped_column(REAL, nullable=True)
     dewpoint_c: Mapped[float | None] = mapped_column(REAL, nullable=True)
@@ -90,7 +90,7 @@ class Taf(Base):
     issued_at: Mapped[str] = mapped_column(Text, nullable=False)
     valid_from: Mapped[str] = mapped_column(Text, nullable=False)
     valid_to: Mapped[str] = mapped_column(Text, nullable=False)
-    raw_taf: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_taf: Mapped[str | None] = mapped_column(Text, nullable=True)
     amendment_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     parse_method: Mapped[str] = mapped_column(
         Text, nullable=False, default="deterministic"
