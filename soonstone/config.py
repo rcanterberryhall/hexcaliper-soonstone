@@ -27,10 +27,11 @@ class Config:
             database_url=os.environ.get(
                 "DATABASE_URL", "sqlite:///./data/soonstone.db"
             ),
-            bbox_south=float(os.environ.get("SOONSTONE_BBOX_SOUTH", "24.0")),
-            bbox_west=float(os.environ.get("SOONSTONE_BBOX_WEST", "-88.0")),
-            bbox_north=float(os.environ.get("SOONSTONE_BBOX_NORTH", "31.5")),
-            bbox_east=float(os.environ.get("SOONSTONE_BBOX_EAST", "-79.5")),
+            # CONUS bbox (south, west, north, east). v0 used Florida (24.0,-88.0,31.5,-79.5).
+            bbox_south=float(os.environ.get("SOONSTONE_BBOX_SOUTH", "24.5")),
+            bbox_west=float(os.environ.get("SOONSTONE_BBOX_WEST", "-125.0")),
+            bbox_north=float(os.environ.get("SOONSTONE_BBOX_NORTH", "49.4")),
+            bbox_east=float(os.environ.get("SOONSTONE_BBOX_EAST", "-66.9")),
             log_level=os.environ.get("SOONSTONE_LOG_LEVEL", "INFO"),
             awc_base_url=os.environ.get(
                 "AWC_BASE_URL", "https://aviationweather.gov/api/data"
