@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from soonstone.models import Observation, Station, Taf
+from soonstone.models import NwsForecast, Observation, Station, Taf
 from soonstone.verification.taf_resolve import ResolvedState, resolve_taf_at
 
 
@@ -112,7 +112,7 @@ def _active_taf(session: Session, station_id: str, now: datetime) -> Taf | None:
     return amended[0] if amended else same_issued[0]
 
 
-def _forward_section(
+def _forward_taf_section(
     session: Session, station_id: str, now: datetime
 ) -> list[dict]:
     taf = _active_taf(session, station_id, now)
@@ -133,6 +133,46 @@ def _forward_section(
             "probability_pct": grp.probability_pct,
             **_state_to_dict(state),
         })
+    return out
+
+
+def _forward_nws_section(
+    session: Session, station_id: str, now: datetime
+) -> list[dict]:
+    iso_now = _iso(now)
+    rows = session.execute(
+        select(NwsForecast)
+        .where(
+            NwsForecast.station_id == station_id,
+            NwsForecast.valid_to >= iso_now,
+        )
+        .order_by(NwsForecast.valid_from)
+    ).scalars().all()
+    out: list[dict] = []
+    for row in rows:
+        anchor = _parse_iso(row.valid_from)
+        lead = (anchor - now).total_seconds() / 3600.0
+        out.append({
+            "valid_at": row.valid_from,
+            "valid_to": row.valid_to,
+            "lead_hours": round(lead, 2),
+            "forecast_source": "NWS",
+            "period_name": row.period_name,
+            "temperature_f": row.temperature_f,
+            "wind_dir": row.wind_dir,
+            "wind_speed": row.wind_speed,
+            "pop_pct": row.pop_pct,
+            "short_forecast": row.short_forecast,
+        })
+    return out
+
+
+def _forward_section(
+    session: Session, station_id: str, now: datetime
+) -> list[dict]:
+    out = _forward_taf_section(session, station_id, now)
+    out.extend(_forward_nws_section(session, station_id, now))
+    out.sort(key=lambda x: x["valid_at"])
     return out
 
 

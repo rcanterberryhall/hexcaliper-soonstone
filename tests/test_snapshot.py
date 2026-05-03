@@ -129,3 +129,32 @@ def test_snapshot_unknown_station_returns_none(seeded, now):
     with seeded() as session:
         snap = build_snapshot(session, "ZZZZ", now=now)
     assert snap is None
+
+
+def test_snapshot_forward_includes_nws_when_present(seeded, now):
+    """NWS forecasts should appear in forward sorted alongside TAF groups."""
+    from soonstone.models import NwsForecast
+    with seeded() as session:
+        session.add(NwsForecast(
+            station_id="KMIA",
+            period_name="Tonight",
+            valid_from=_iso(now + timedelta(hours=1)),
+            valid_to=_iso(now + timedelta(hours=13)),
+            temperature_f=72,
+            wind_dir="SW",
+            wind_speed="5 to 10 mph",
+            pop_pct=30,
+            short_forecast="Mostly clear",
+        ))
+        session.commit()
+    with seeded() as session:
+        snap = build_snapshot(session, "KMIA", now=now)
+    nws_rows = [f for f in snap["forward"] if f.get("forecast_source") == "NWS"]
+    assert len(nws_rows) == 1
+    nws = nws_rows[0]
+    assert nws["temperature_f"] == 72
+    assert nws["pop_pct"] == 30
+    assert nws["short_forecast"] == "Mostly clear"
+    # And the TAF rows are still there
+    taf_rows = [f for f in snap["forward"] if f.get("forecast_source") == "TAF"]
+    assert len(taf_rows) >= 1
