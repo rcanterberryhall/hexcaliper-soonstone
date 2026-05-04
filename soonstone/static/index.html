@@ -1722,13 +1722,27 @@ function verifyLegend() {
 /* Cache the entries currently rendered so a click can look one up by index. */
 let verifyEntries = [];
 
+function _leadHoursLabel(h) {
+  if (h == null) return "";
+  if (h < 1) return `${Math.round(h * 60)} min ago`;
+  if (h < 24) return `${h.toFixed(1)} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+}
+
 function verifyRow(entry, idx) {
-  const anchor = entry.anchor_hour;
+  /* In convergence mode each row is one TAF issuance evaluated at NOW;
+     'predicted' is what THAT past forecast said about right-now, 'actual'
+     is the current observation. Time label = how long ago the forecast
+     was issued. */
   const pred = entry.predicted || {};
   const act = entry.actual;
+  const anchor = entry.anchor_hour || (act ? act.observed_at : null);
 
   const predIcon = consumerIcon(pred, anchor);
   const predCond = consumerCondition(pred);
+  const amendTag = entry.amendment_type
+    ? `<span style="color:var(--yellow);font-weight:700"> ${entry.amendment_type}</span>`
+    : "";
 
   let actContent;
   let level = 0;
@@ -1748,7 +1762,7 @@ function verifyRow(entry, idx) {
 
   return `
     <div class="verify-row${level ? " div-" + level : ""}" data-verify-idx="${idx}" role="button" tabindex="0" style="cursor:pointer">
-      <span class="v-time">${fmtHourLabel(anchor)}</span>
+      <span class="v-time">${_leadHoursLabel(entry.lead_hours)}${amendTag}</span>
       <div class="v-cell"><span class="v-icon">${predIcon}</span><span>${predCond}</span></div>
       <div class="v-cell">${actContent}</div>
       ${deltaLine}
@@ -1849,7 +1863,7 @@ function detailHtml(entry) {
   const noActual = !act;
 
   const meta = [
-    `Forecast made ${entry.lead_hours} h before`,
+    `Forecast made ${entry.lead_hours} h ago`,
     entry.amendment_type ? `<strong style="color:var(--yellow)">${entry.amendment_type}</strong>` : "routine TAF",
     `TAF issued ${fmtTime(entry.issued_at)}`,
   ].join(" · ");
@@ -1864,7 +1878,7 @@ function detailHtml(entry) {
   }
 
   return `
-    <div class="popup-station">${fmtHourLabel(anchor)} &middot; forecast vs actual</div>
+    <div class="popup-station">Forecast for now vs current</div>
     <div class="delta-meta">${meta}</div>
     <table class="delta-table">
       <thead><tr><th></th><th>Forecast</th><th>Actual</th></tr></thead>
@@ -1909,17 +1923,37 @@ function detailHtml(entry) {
 
 function consumerPanelHtml(snap) {
   const name = snap.station.name ? `<span class="station-name">${snap.station.name}</span>` : "";
-  /* newest first; cache for the click-to-drilldown handler */
-  verifyEntries = (snap.historic_predictions || []).slice().reverse();
+
+  /* Convergence: every TAF issued in the last 24 h, each evaluated at NOW.
+     Wrap each into the verifyRow shape with predicted=convergence-state and
+     actual=current observation. Newest issuance at top. */
+  const convRaw = (snap.convergence || []).slice().reverse();
+  verifyEntries = convRaw.map((c) => ({
+    anchor_hour: snap.now ? snap.now.observed_at : null,
+    predicted: {
+      wind_dir_deg: c.wind_dir_deg,
+      wind_speed_kt: c.wind_speed_kt,
+      wind_gust_kt: c.wind_gust_kt,
+      visibility_sm: c.visibility_sm,
+      weather: c.weather,
+      cloud_layers: c.cloud_layers,
+      ceiling_ft: c.ceiling_ft,
+      flight_category: c.flight_category,
+    },
+    actual: snap.now,
+    issued_at: c.issued_at,
+    amendment_type: c.amendment_type,
+    lead_hours: c.lead_hours,
+  }));
   const verify = verifyEntries;
   const hourly = snap.hourly || [];
   const nws = (snap.forward || []).filter((f) => f.forecast_source === "NWS");
 
   const verifyBlock = verify.length
-    ? `<div class="verify-header"><span></span><span>Forecast</span><span>Actual</span></div>
+    ? `<div class="verify-header"><span>Issued</span><span>Predicted for now</span><span>Actual now</span></div>
        ${verifyLegend()}
        <div class="friendly-section">${verify.map((e, i) => verifyRow(e, i)).join("")}</div>`
-    : `<div class="empty">no historical TAF coverage in the last 24 h</div>`;
+    : `<div class="empty">no TAF in the last 24 h to compare against</div>`;
 
   const hourlyBlock = hourly.length
     ? `<div class="friendly-section">${hourly.map((h) => friendlyHourRowNoTemp(h)).join("")}</div>`
@@ -1938,7 +1972,7 @@ function consumerPanelHtml(snap) {
   return `
     <div class="popup-station">${snap.station.id}${name}</div>
     ${consumerNowBlock(snap.now, snap.station)}
-    <div class="popup-section-label">Past 24 hours: forecast vs actual</div>
+    <div class="popup-section-label">Forecasts converging on now (last 24 h)</div>
     ${verifyBlock}
     <div class="popup-section-label">Next 24 hours (from TAF)</div>
     ${hourlyBlock}
